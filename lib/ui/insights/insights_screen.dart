@@ -301,7 +301,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
               Text('Daily Spend vs Allowance (Past 7 Days)', style: TypeScale.caption(t.inkSoft)),
               const SizedBox(height: Space.x3),
               SizedBox(
-                height: 130,
+                height: 146,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -357,7 +357,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
               Text('Weekly Spend Comparison Across Month', style: TypeScale.caption(t.inkSoft)),
               const SizedBox(height: Space.x3),
               SizedBox(
-                height: 140,
+                height: 146,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -627,37 +627,59 @@ class _Bar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = TokenScope.of(context);
-    const h = 96.0;
-    final spentH = max > 0 ? (spent / max) * h : 0.0;
+    const maxBarH = 80.0;
+    final spentH = max > 0 ? (spent / max) * maxBarH : 0.0;
     final over = spent > allowance;
 
     return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (spent > 0)
-          Text(
-            hide ? '···' : '₹${spent ~/ 100}',
-            style: TypeScale.caption(over ? t.over : t.inkSoft).copyWith(fontSize: 10),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          )
-        else
-          const SizedBox(height: 14),
-        const SizedBox(height: 2),
-        Container(
-          height: spentH.clamp(spent > 0 ? 3.0 : 1.0, h),
-          decoration: BoxDecoration(
-            color: spent == 0
-                ? t.rule
-                : over
-                    ? t.over
-                    : t.accent,
-            borderRadius: BorderRadius.circular(2),
+        // Upper Bar Area: fixed height so all bars sit on the exact same baseline
+        SizedBox(
+          height: maxBarH + 20, // 20px headroom for amount text
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (spent > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    hide ? '···' : '₹${spent ~/ 100}',
+                    style: TypeScale.caption(over ? t.over : t.inkSoft)
+                        .copyWith(fontSize: 10, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              Container(
+                height: spent > 0 ? spentH.clamp(3.0, maxBarH) : 0.0,
+                decoration: BoxDecoration(
+                  color: over ? t.over : t.accent,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                ),
+              ),
+            ],
           ),
         ),
+        // Continuous horizontal baseline across all days
+        Container(
+          height: 1.5,
+          color: t.rule,
+        ),
         const SizedBox(height: 6),
-        Text(label, style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w600)),
-        Text(dateStr, style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 9)),
+        // Day & Date labels pinned at exact same vertical position
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          dateStr,
+          textAlign: TextAlign.center,
+          style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 9),
+        ),
       ],
     );
   }
