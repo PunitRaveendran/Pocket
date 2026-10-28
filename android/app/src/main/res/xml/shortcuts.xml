@@ -4,8 +4,8 @@
         android:shortcutId="quick_spend"
         android:enabled="true"
         android:icon="@mipmap/ic_launcher"
-        android:shortcutShortLabel="@string/app_name"
-        android:shortcutLongLabel="Quick Add Spend">
+        android:shortcutShortLabel="@string/quick_spend_title"
+        android:shortcutLongLabel="@string/quick_spend_long">
         <intent
             android:action="app.pocket.pocket.QUICK_SPEND"
             android:targetPackage="app.pocket.pocket"
