@@ -295,13 +295,14 @@ class WeekView {
 WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
   final day = date ?? LocalDate.today();
   final cycle = PayCycle.containing(day, ledger.settings.cycleStartDay);
-  final dayIndex = cycle.dayIndex(day);
-  final weekIndex = dayIndex ~/ 7;
-  final weekStart = cycle.start.addDays(weekIndex * 7);
-  final candidateEnd = weekStart.addDays(6);
-  final weekEnd = candidateEnd.dateTime.isAfter(cycle.endInclusive.dateTime)
-      ? cycle.endInclusive
-      : candidateEnd;
+  final weeks = cycle.calendarWeeks();
+  final currentWeek = weeks.firstWhere(
+    (w) => w.contains(day),
+    orElse: () => weeks.last,
+  );
+
+  final weekStart = currentWeek.start;
+  final weekEnd = currentWeek.end;
 
   final weekTxns = ledger.transactions.where((t) {
     if (t.bucket != Bucket.daily) return false;
@@ -332,23 +333,55 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
 
   const engine = BudgetEngine();
   var weekAllowance = 0;
-  for (var d = weekStart; !d.dateTime.isAfter(weekEnd.dateTime); d = d.addDays(1)) {
-    weekAllowance += engine.allowanceFor(
-      stipendPaise: ledger.settings.effectiveStipendPaise,
-      cycle: cycle,
-      day: d,
-    );
+
+  if (ledger.settings.leftoverPolicy == LeftoverPolicy.dynamicDistribute && cycle.contains(day)) {
+    var spentBeforeWeek = 0;
+    for (var d = cycle.start; d.dateTime.isBefore(weekStart.dateTime); d = d.addDays(1)) {
+      for (final t in ledger.transactions) {
+        if (t.bucket == Bucket.daily && t.localDate == d) {
+          spentBeforeWeek += t.signedPaise;
+        }
+      }
+    }
+    final remainingStipend = ledger.settings.effectiveStipendPaise - spentBeforeWeek;
+    final remainingDaysInCycle = cycle.endInclusive.dateTime.difference(weekStart.dateTime).inDays + 1;
+    final daysInThisWeek = currentWeek.lengthDays;
+
+    if (remainingDaysInCycle > 0 && remainingStipend > 0) {
+      if (weekEnd == cycle.endInclusive) {
+        // Final week of month receives full remaining balance
+        weekAllowance = remainingStipend;
+      } else {
+        final dailyPace = remainingStipend ~/ remainingDaysInCycle;
+        weekAllowance = dailyPace * daysInThisWeek;
+      }
+    } else {
+      for (var d = weekStart; !d.dateTime.isAfter(weekEnd.dateTime); d = d.addDays(1)) {
+        weekAllowance += engine.allowanceFor(
+          stipendPaise: ledger.settings.effectiveStipendPaise,
+          cycle: cycle,
+          day: d,
+        );
+      }
+    }
+  } else {
+    for (var d = weekStart; !d.dateTime.isAfter(weekEnd.dateTime); d = d.addDays(1)) {
+      weekAllowance += engine.allowanceFor(
+        stipendPaise: ledger.settings.effectiveStipendPaise,
+        cycle: cycle,
+        day: d,
+      );
+    }
   }
 
-  final totalWeeks = ((cycle.lengthDays - 1) ~/ 7) + 1;
   final budget = WeekBudget(
     startDate: weekStart,
     endDate: weekEnd,
     allowancePaise: weekAllowance,
     spentPaise: spent,
     refundsPaise: refunds,
-    weekNumber: weekIndex + 1,
-    totalWeeks: totalWeeks,
+    weekNumber: currentWeek.weekNumber,
+    totalWeeks: weeks.length,
   );
 
   return WeekView(

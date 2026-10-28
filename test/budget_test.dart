@@ -168,12 +168,48 @@ void main() {
     );
 
     final weekView = buildCurrentWeek(ledger, date: const LocalDate(2026, 10, 3));
-    // Week 1 of Oct has 7 days (Oct 1 to Oct 7) = 70000 paise allowance (₹700)
+    // Week 1 of Oct 2026 spans Thu Oct 1 to Sun Oct 4 (4 days) = 40000 paise allowance (₹400)
     expect(weekView.budget.weekNumber, 1);
-    expect(weekView.budget.allowancePaise, 70000);
+    expect(weekView.budget.startDate, const LocalDate(2026, 10, 1));
+    expect(weekView.budget.endDate, const LocalDate(2026, 10, 4));
+    expect(weekView.budget.allowancePaise, 40000);
     expect(weekView.budget.spentPaise, 15000);
-    expect(weekView.budget.remaining, 55000);
+    expect(weekView.budget.remaining, 25000);
     expect(weekView.budget.isOver, isFalse);
+
+    // Week 2 spans Mon Oct 5 to Sun Oct 11 (full 7-day Monday-Sunday week).
+    // Under dynamic distribute, unspent ₹250 from Week 1 is distributed over remaining 27 days:
+    // (310000 - 15000) ~/ 27 = 10925 paise/day * 7 days = 76475 paise (₹764.75)
+    final week2View = buildCurrentWeek(ledger, date: const LocalDate(2026, 10, 7));
+    expect(week2View.budget.weekNumber, 2);
+    expect(week2View.budget.startDate, const LocalDate(2026, 10, 5));
+    expect(week2View.budget.endDate, const LocalDate(2026, 10, 11));
+    expect(week2View.budget.allowancePaise, 76475);
+  });
+
+  test('weekly budget with dynamic distribute grants remaining stipend to final week', () {
+    final ledger = Ledger(
+      settings: const Settings(
+        stipendPaise: 100000, // ₹1,000 stipend
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+        pacingMode: PacingMode.weekly,
+        leftoverPolicy: LeftoverPolicy.dynamicDistribute,
+      ),
+      categories: const [],
+      transactions: const [], // zero spends
+      outings: const [],
+    );
+
+    // Oct 28, 2026 is in Week 5 (Mon Oct 26 - Sat Oct 31, final week of cycle)
+    final weekView = buildCurrentWeek(ledger, date: const LocalDate(2026, 10, 28));
+    expect(weekView.budget.weekNumber, 5);
+    expect(weekView.budget.startDate, const LocalDate(2026, 10, 26));
+    expect(weekView.budget.endDate, const LocalDate(2026, 10, 31));
+    // With zero previous spends, the entire ₹1,000 is available for the final week
+    expect(weekView.budget.allowancePaise, 100000);
+    expect(weekView.budget.remaining, 100000);
   });
 
   test('friend split net balances calculate correctly for owed and owing', () {

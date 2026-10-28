@@ -144,16 +144,24 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           icon: Icon(Icons.chevron_left, color: t.inkSoft, size: 24),
-                          tooltip: 'Previous day',
+                          tooltip: isWeekly ? 'Previous week' : 'Previous day',
                           onPressed: () {
-                            setState(() => _selectedDate = _selectedDate.addDays(-1));
+                            if (isWeekly && weekBudget != null) {
+                              setState(() => _selectedDate = weekBudget!.startDate.addDays(-1));
+                            } else {
+                              setState(() => _selectedDate = _selectedDate.addDays(-1));
+                            }
                           },
                         ),
                         const SizedBox(width: Space.x2),
                         Text(
-                          _isToday
-                              ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
-                              : DateFormat('EEE, d MMM').format(_selectedDate.dateTime),
+                          isWeekly && weekBudget != null
+                              ? (weekBudget.contains(LocalDate.today())
+                                  ? 'This Week (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})'
+                                  : 'Week ${weekBudget.weekNumber} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})')
+                              : (_isToday
+                                  ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
+                                  : DateFormat('EEE, d MMM').format(_selectedDate.dateTime)),
                           style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(width: Space.x2),
@@ -162,14 +170,18 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           constraints: const BoxConstraints(),
                           icon: Icon(
                             Icons.chevron_right,
-                            color: _isToday ? t.rule : t.inkSoft,
+                            color: (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday) ? t.rule : t.inkSoft,
                             size: 24,
                           ),
-                          tooltip: 'Next day',
-                          onPressed: _isToday
+                          tooltip: isWeekly ? 'Next week' : 'Next day',
+                          onPressed: (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday)
                               ? null
                               : () {
-                                  setState(() => _selectedDate = _selectedDate.addDays(1));
+                                  if (isWeekly && weekBudget != null) {
+                                    setState(() => _selectedDate = weekBudget!.endDate.addDays(1));
+                                  } else {
+                                    setState(() => _selectedDate = _selectedDate.addDays(1));
+                                  }
                                 },
                         ),
                         const Spacer(),

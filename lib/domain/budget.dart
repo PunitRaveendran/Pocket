@@ -48,6 +48,11 @@ class WeekBudget {
     if (allowancePaise <= 0) return netSpent > 0 ? 2 : 0;
     return netSpent / allowancePaise;
   }
+
+  bool contains(LocalDate d) {
+    final t = d.dateTime;
+    return !t.isBefore(startDate.dateTime) && !t.isAfter(endDate.dateTime);
+  }
 }
 
 class BudgetEngine {

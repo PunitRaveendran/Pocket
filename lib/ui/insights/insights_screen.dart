@@ -69,14 +69,11 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         }
 
         // Weekly trend data
-        final totalWeeks = ((cycle.lengthDays - 1) ~/ 7) + 1;
+        final weeks = cycle.calendarWeeks();
         final weekBars = <_WeekBar>[];
-        for (var w = 0; w < totalWeeks; w++) {
-          final wStart = cycle.start.addDays(w * 7);
-          final candEnd = wStart.addDays(6);
-          final wEnd = candEnd.dateTime.isAfter(cycle.endInclusive.dateTime)
-              ? cycle.endInclusive
-              : candEnd;
+        for (final w in weeks) {
+          final wStart = w.start;
+          final wEnd = w.end;
 
           var wAllowance = 0;
           for (var d = wStart; !d.dateTime.isAfter(wEnd.dateTime); d = d.addDays(1)) {
@@ -94,8 +91,8 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           }).fold<int>(0, (sum, t) => sum + t.signedPaise);
 
           weekBars.add(_WeekBar(
-            weekNumber: w + 1,
-            label: 'W${w + 1}',
+            weekNumber: w.weekNumber,
+            label: 'W${w.weekNumber}',
             dateRange: '${DateFormat('d/M').format(wStart.dateTime)}–${DateFormat('d/M').format(wEnd.dateTime)}',
             spent: wSpent.clamp(0, 999999999),
             allowance: wAllowance,

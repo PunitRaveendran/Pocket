@@ -81,4 +81,49 @@ class PayCycle {
     final end = nextStart.addDays(-1);
     return PayCycle(start: start, endInclusive: end);
   }
+
+  /// Partitions the pay cycle into standard Monday-to-Sunday student weeks,
+  /// cleanly bounded by the cycle's start and end dates.
+  List<CycleWeek> calendarWeeks() {
+    final weeks = <CycleWeek>[];
+    var currentStart = start;
+    var w = 1;
+
+    while (!currentStart.dateTime.isAfter(endInclusive.dateTime)) {
+      final daysToSunday = DateTime.sunday - currentStart.weekday;
+      final candidateEnd = currentStart.addDays(daysToSunday);
+      final currentEnd = candidateEnd.dateTime.isAfter(endInclusive.dateTime)
+          ? endInclusive
+          : candidateEnd;
+
+      weeks.add(CycleWeek(
+        weekNumber: w++,
+        start: currentStart,
+        end: currentEnd,
+      ));
+
+      currentStart = currentEnd.addDays(1);
+    }
+    return weeks;
+  }
 }
+
+class CycleWeek {
+  const CycleWeek({
+    required this.weekNumber,
+    required this.start,
+    required this.end,
+  });
+
+  final int weekNumber;
+  final LocalDate start;
+  final LocalDate end;
+
+  int get lengthDays => end.dateTime.difference(start.dateTime).inDays + 1;
+
+  bool contains(LocalDate d) {
+    final t = d.dateTime;
+    return !t.isBefore(start.dateTime) && !t.isAfter(end.dateTime);
+  }
+}
+
