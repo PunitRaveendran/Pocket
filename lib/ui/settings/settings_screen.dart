@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/backup.dart';
+import '../../core/biometrics.dart';
 import '../../core/export.dart';
 import '../../core/money.dart';
 import '../../data/models.dart';
@@ -9,6 +11,7 @@ import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
+import '../sheets/receipt_sheet.dart';
 import '../widgets/amount_pad.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/cycle_day_picker.dart';
@@ -70,6 +73,80 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const Hairline(indent: Space.margin),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            title: Text('Fixed monthly deductions', style: TypeScale.body(t.ink)),
+            subtitle: Text(
+              s.fixedDeductions.isEmpty
+                  ? 'None (bus pass, mobile recharge, etc.)'
+                  : '${s.fixedDeductions.length} active (Total: ${Money.formatPaise(s.totalFixedDeductionsPaise)})',
+              style: TypeScale.caption(t.inkSoft),
+            ),
+            trailing: Icon(Icons.chevron_right, size: 20, color: t.inkSoft),
+            onTap: () => _manageFixedDeductions(context, ref, ledger),
+          ),
+          const Hairline(indent: Space.margin),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            title: Text('Leftover policy', style: TypeScale.body(t.ink)),
+            subtitle: Text(
+              s.leftoverPolicy == LeftoverPolicy.dynamicDistribute
+                  ? 'Dynamic Distribute (spread over remaining days)'
+                  : 'Save to Outings Pool (sweeps into Piggy Bank)',
+              style: TypeScale.caption(t.inkSoft),
+            ),
+            trailing: DropdownButton<LeftoverPolicy>(
+              value: s.leftoverPolicy,
+              underline: const SizedBox.shrink(),
+              dropdownColor: t.card,
+              style: TypeScale.body(t.accent),
+              onChanged: (policy) {
+                if (policy != null) {
+                  ref.read(ledgerProvider.notifier).setLeftoverPolicy(policy);
+                }
+              },
+              items: const [
+                DropdownMenuItem(
+                  value: LeftoverPolicy.dynamicDistribute,
+                  child: Text('Distribute'),
+                ),
+                DropdownMenuItem(
+                  value: LeftoverPolicy.outingsPiggyBank,
+                  child: Text('Piggy Bank'),
+                ),
+              ],
+            ),
+          ),
+          const Hairline(indent: Space.margin),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            title: Text('Biometric App Lock', style: TypeScale.body(t.ink)),
+            subtitle: Text('Require fingerprint or device PIN on launch', style: TypeScale.caption(t.inkSoft)),
+            value: s.biometricEnabled,
+            activeThumbColor: t.paper,
+            activeTrackColor: t.accent,
+            onChanged: (v) async {
+              final ok = await BiometricService.instance.authenticate(
+                reason: v ? 'Verify identity to enable Biometric Lock' : 'Verify identity to disable Biometric Lock',
+              );
+              if (ok) {
+                await ref.read(ledgerProvider.notifier).setBiometricEnabled(v);
+              } else if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Biometric authentication cancelled or not matched')),
+                );
+              }
+            },
+          ),
+          const Hairline(indent: Space.margin),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            leading: Icon(Icons.receipt_long_outlined, size: 20, color: t.inkSoft),
+            title: Text('Month-End Paper Receipt', style: TypeScale.body(t.ink)),
+            subtitle: Text('Thermal receipt of cycle spends & campus stats', style: TypeScale.caption(t.inkSoft)),
+            onTap: () => showMonthEndReceipt(context, ledger),
+          ),
+          const Hairline(indent: Space.margin),
           SwitchListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
             title: Text(Copy.hideAmounts, style: TypeScale.body(t.ink)),
@@ -113,6 +190,22 @@ class SettingsScreen extends ConsumerWidget {
             child: Text('Data & Privacy', style: TypeScale.heading(t.ink)),
           ),
           const SizedBox(height: Space.x2),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            leading: Icon(Icons.backup_outlined, size: 20, color: t.inkSoft),
+            title: Text('Backup Ledger Snapshot', style: TypeScale.body(t.ink)),
+            subtitle: Text('Export complete encrypted JSON snapshot', style: TypeScale.caption(t.inkSoft)),
+            onTap: () => _backupSnapshot(context, ledger),
+          ),
+          const Hairline(indent: Space.margin),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            leading: Icon(Icons.settings_backup_restore_outlined, size: 20, color: t.inkSoft),
+            title: Text('Restore from Backup', style: TypeScale.body(t.ink)),
+            subtitle: Text('Restore all transactions and settings from snapshot', style: TypeScale.caption(t.inkSoft)),
+            onTap: () => _restoreSnapshot(context, ref),
+          ),
+          const Hairline(indent: Space.margin),
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
             leading: Icon(Icons.table_chart_outlined, size: 20, color: t.inkSoft),
@@ -389,5 +482,281 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
     if (ok == true) await ref.read(ledgerProvider.notifier).wipe();
+  }
+
+  Future<void> _manageFixedDeductions(BuildContext context, WidgetRef ref, Ledger ledger) async {
+    final t = TokenScope.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Consumer(
+          builder: (ctx, ref, _) {
+            final liveLedger = ref.watch(ledgerProvider).valueOrNull ?? ledger;
+            final deductions = liveLedger.settings.fixedDeductions;
+            final totalFixed = liveLedger.settings.totalFixedDeductionsPaise;
+            final effective = liveLedger.settings.effectiveStipendPaise;
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(Space.margin, Space.x6, Space.margin, Space.x6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Fixed Monthly Deductions', style: TypeScale.title(t.ink)),
+                    const SizedBox(height: Space.x2),
+                    Text(
+                      'Recurring student expenses (college bus pass, mobile recharge, mess fee) deducted before calculating daily allowance.',
+                      style: TypeScale.caption(t.inkSoft),
+                    ),
+                    const SizedBox(height: Space.x3),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: t.card,
+                        border: Border.all(color: t.rule),
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Total Fixed: ${Money.formatPaise(totalFixed)}', style: TypeScale.caption(t.inkSoft)),
+                          Text('Effective Stipend: ${Money.formatPaise(effective)}',
+                              style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: Space.x3),
+                    if (deductions.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: Text('No fixed deductions added yet.', style: TypeScale.caption(t.inkSoft)),
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: deductions.length,
+                          separatorBuilder: (context, index) => const Hairline(),
+                          itemBuilder: (ctx, i) {
+                            final d = deductions[i];
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                d.title,
+                                style: TypeScale.body(t.ink).copyWith(
+                                  decoration: d.isEnabled ? null : TextDecoration.lineThrough,
+                                ),
+                              ),
+                              subtitle: Text(
+                                '${Money.formatPaise(d.amountPaise)} / month',
+                                style: TypeScale.caption(t.inkSoft),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Switch(
+                                    value: d.isEnabled,
+                                    activeThumbColor: t.paper,
+                                    activeTrackColor: t.accent,
+                                    onChanged: (v) {
+                                      ref.read(ledgerProvider.notifier).updateFixedDeduction(
+                                            d.copyWith(isEnabled: v),
+                                          );
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.delete_outline, size: 20, color: t.over),
+                                    onPressed: () {
+                                      ref.read(ledgerProvider.notifier).deleteFixedDeduction(d.id);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: Space.x4),
+                    PrimaryButton(
+                      label: '+ Add Recurring Cost',
+                      onPressed: () => _addFixedDeductionDialog(ctx, ref, t),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _addFixedDeductionDialog(BuildContext context, WidgetRef ref, PaperTokens t) async {
+    final titleController = TextEditingController();
+    final amountController = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('New Fixed Deduction', style: TypeScale.heading(t.ink)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: titleController,
+              autofocus: true,
+              style: TypeScale.body(t.ink),
+              cursorColor: t.accent,
+              decoration: InputDecoration(
+                labelText: 'Description',
+                hintText: 'e.g. College Bus Pass, Mobile Recharge',
+                labelStyle: TypeScale.caption(t.inkSoft),
+              ),
+            ),
+            const SizedBox(height: Space.x3),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              style: TypeScale.body(t.ink),
+              cursorColor: t.accent,
+              decoration: InputDecoration(
+                labelText: 'Amount (₹ / month)',
+                hintText: 'e.g. 400',
+                labelStyle: TypeScale.caption(t.inkSoft),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(Copy.save, style: TypeScale.body(t.accent)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true && titleController.text.trim().isNotEmpty) {
+      final rupees = int.tryParse(amountController.text.trim()) ?? 0;
+      if (rupees > 0) {
+        await ref.read(ledgerProvider.notifier).addFixedDeduction(
+              title: titleController.text.trim(),
+              amountPaise: rupees * 100,
+            );
+      }
+    }
+  }
+
+  Future<void> _backupSnapshot(BuildContext context, Ledger ledger) async {
+    final t = TokenScope.of(context);
+    final jsonStr = BackupService.generateBackupJson(ledger);
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Encrypted Backup Snapshot', style: TypeScale.heading(t.ink)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Complete snapshot of settings, categories, transactions, friend splits, and fixed costs.',
+              style: TypeScale.body(t.inkSoft),
+            ),
+            const SizedBox(height: Space.x4),
+            Container(
+              height: 140,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: t.card,
+                border: Border.all(color: t.rule),
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+              ),
+              child: SingleChildScrollView(
+                child: Text(
+                  jsonStr,
+                  style: TypeScale.caption(t.inkSoft).copyWith(fontFamily: 'monospace', fontSize: 10),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft))),
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: jsonStr));
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Backup snapshot copied to clipboard')),
+              );
+            },
+            child: Text('Copy to Clipboard', style: TypeScale.body(t.accent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _restoreSnapshot(BuildContext context, WidgetRef ref) async {
+    final t = TokenScope.of(context);
+    final controller = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Restore from Backup', style: TypeScale.heading(t.ink)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Warning: Restoring will overwrite all current local data with the contents of the backup snapshot.',
+              style: TypeScale.caption(t.over),
+            ),
+            const SizedBox(height: Space.x3),
+            TextField(
+              controller: controller,
+              maxLines: 5,
+              style: TypeScale.caption(t.ink).copyWith(fontFamily: 'monospace'),
+              decoration: InputDecoration(
+                hintText: 'Paste backup JSON snapshot here...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Restore Now', style: TypeScale.body(t.accent)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true && controller.text.trim().isNotEmpty) {
+      final repo = ref.read(repositoryProvider);
+      final success = await BackupService.restoreFromJson(controller.text.trim(), repo);
+      if (context.mounted) {
+        if (success) {
+          ref.invalidate(ledgerProvider);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Ledger restored successfully!')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to restore. Please check the backup JSON format.')),
+          );
+        }
+      }
+    }
   }
 }

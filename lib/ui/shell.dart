@@ -8,6 +8,7 @@ import '../theme/tokens.dart';
 import 'insights/insights_screen.dart';
 import 'outings/outings_screen.dart';
 import 'settings/settings_screen.dart';
+import 'sheets/spend_sheet.dart';
 import 'splits/splits_screen.dart';
 import 'today/today_screen.dart';
 import 'widgets/hairline.dart';
@@ -21,8 +22,32 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   int _index = 0;
+  static const _quickChannel = MethodChannel('app.pocket.pocket/quick_action');
 
   static const _titles = [Copy.today, 'Splits', Copy.outings, Copy.insights];
+
+  @override
+  void initState() {
+    super.initState();
+    _initQuickAction();
+  }
+
+  Future<void> _initQuickAction() async {
+    _quickChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onQuickAction' && call.arguments == 'app.pocket.pocket.QUICK_SPEND') {
+        if (mounted) showSpendSheet(context);
+      }
+    });
+
+    try {
+      final initialAction = await _quickChannel.invokeMethod<String>('getInitialAction');
+      if (initialAction == 'app.pocket.pocket.QUICK_SPEND' && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) showSpendSheet(context);
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {

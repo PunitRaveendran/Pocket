@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/dates.dart';
+import '../core/glance_widget.dart';
 import '../data/database.dart';
 import '../data/models.dart';
 import '../data/repository.dart';
@@ -18,10 +19,17 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
   PocketRepository get _repo => ref.read(repositoryProvider);
 
   @override
-  Future<Ledger> build() => _repo.load();
+  Future<Ledger> build() async {
+    final ledger = await _repo.load();
+    // Fire and forget widget update
+    GlanceWidgetService.update(ledger);
+    return ledger;
+  }
 
   Future<void> _reload() async {
-    state = AsyncData(await _repo.load());
+    final loaded = await _repo.load();
+    state = AsyncData(loaded);
+    GlanceWidgetService.update(loaded);
   }
 
   Future<void> completeOnboarding({
@@ -229,6 +237,39 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> addFixedDeduction({
+    required String title,
+    required int amountPaise,
+    bool isEnabled = true,
+  }) async {
+    await _repo.addFixedDeduction(title: title, amountPaise: amountPaise, isEnabled: isEnabled);
+    await _reload();
+  }
+
+  Future<void> updateFixedDeduction(FixedDeduction d) async {
+    await _repo.updateFixedDeduction(d);
+    await _reload();
+  }
+
+  Future<void> deleteFixedDeduction(String id) async {
+    await _repo.deleteFixedDeduction(id);
+    await _reload();
+  }
+
+  Future<void> setLeftoverPolicy(LeftoverPolicy policy) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    await _repo.saveSettings(current.settings.copyWith(leftoverPolicy: policy));
+    await _reload();
+  }
+
+  Future<void> setBiometricEnabled(bool enabled) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    await _repo.saveSettings(current.settings.copyWith(biometricEnabled: enabled));
+    await _reload();
+  }
+
   Future<void> wipe() async {
     await _repo.wipe();
     await _reload();
@@ -293,7 +334,7 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
   var weekAllowance = 0;
   for (var d = weekStart; !d.dateTime.isAfter(weekEnd.dateTime); d = d.addDays(1)) {
     weekAllowance += engine.allowanceFor(
-      stipendPaise: ledger.settings.stipendPaise,
+      stipendPaise: ledger.settings.effectiveStipendPaise,
       cycle: cycle,
       day: d,
     );
@@ -360,10 +401,41 @@ TodayView buildToday(Ledger ledger, {LocalDate? date}) {
       topName = ledger.categoryById(id)?.name;
     }
   });
-  final budget = const BudgetEngine().day(
-    stipendPaise: ledger.settings.stipendPaise,
-    cycle: cycle,
+
+  int allowancePaise;
+  if (ledger.settings.leftoverPolicy == LeftoverPolicy.dynamicDistribute && cycle.contains(day)) {
+    var spentBefore = 0;
+    for (var d = cycle.start; d.dateTime.isBefore(day.dateTime); d = d.addDays(1)) {
+      for (final t in ledger.transactions) {
+        if (t.bucket == Bucket.daily && t.localDate == d) {
+          spentBefore += t.signedPaise;
+        }
+      }
+    }
+    final remainingStipend = ledger.settings.effectiveStipendPaise - spentBefore;
+    final remainingDays = cycle.endInclusive.dateTime.difference(day.dateTime).inDays + 1;
+    if (remainingDays > 0 && remainingStipend > 0) {
+      final base = remainingStipend ~/ remainingDays;
+      final leftover = remainingStipend % remainingDays;
+      allowancePaise = cycle.isLastDay(day) ? (base + leftover) : base;
+    } else {
+      allowancePaise = const BudgetEngine().allowanceFor(
+        stipendPaise: ledger.settings.effectiveStipendPaise,
+        cycle: cycle,
+        day: day,
+      );
+    }
+  } else {
+    allowancePaise = const BudgetEngine().allowanceFor(
+      stipendPaise: ledger.settings.effectiveStipendPaise,
+      cycle: cycle,
+      day: day,
+    );
+  }
+
+  final budget = DayBudget(
     date: day,
+    allowancePaise: allowancePaise,
     spentPaise: spent,
     refundsPaise: refunds,
   );
@@ -396,4 +468,27 @@ int ordinaryThisCycle(Ledger ledger, PayCycle cycle) {
     if (t.direction == Direction.credit) sum -= t.amountPaise;
   }
   return sum;
+}
+
+int safeDailyPace(Ledger ledger, PayCycle cycle, LocalDate day) {
+  final ordinary = ordinaryThisCycle(ledger, cycle);
+  final remainingStipend = ledger.settings.effectiveStipendPaise - ordinary;
+  final daysRemaining = cycle.endInclusive.dateTime.difference(day.dateTime).inDays + 1;
+  return (daysRemaining > 0 && remainingStipend > 0) ? remainingStipend ~/ daysRemaining : 0;
+}
+
+int outingsPiggyBank(Ledger ledger, PayCycle cycle, LocalDate today) {
+  const engine = BudgetEngine();
+  final stipend = ledger.settings.effectiveStipendPaise;
+  var savings = 0;
+  for (var d = cycle.start; d.dateTime.isBefore(today.dateTime); d = d.addDays(1)) {
+    final allow = engine.allowanceFor(stipendPaise: stipend, cycle: cycle, day: d);
+    final spent = ledger.transactions
+        .where((t) => t.bucket == Bucket.daily && t.localDate == d)
+        .fold<int>(0, (sum, t) => sum + t.signedPaise);
+    if (spent < allow) {
+      savings += (allow - spent);
+    }
+  }
+  return savings;
 }

@@ -14,7 +14,7 @@ class PocketDatabase {
     final path = p.join(dir.path, 'pocket.db');
     _db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE settings (
@@ -74,6 +74,16 @@ class PocketDatabase {
         ''');
         await db.execute('CREATE INDEX idx_splits_date ON friend_splits(local_date)');
         await db.execute('CREATE INDEX idx_splits_friend ON friend_splits(friend_name)');
+
+        await db.execute('''
+          CREATE TABLE fixed_deductions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            amount_paise INTEGER NOT NULL,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            deleted_at INTEGER
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -94,6 +104,17 @@ class PocketDatabase {
           await db.execute('CREATE INDEX idx_splits_date ON friend_splits(local_date)');
           await db.execute('CREATE INDEX idx_splits_friend ON friend_splits(friend_name)');
         }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE fixed_deductions (
+              id TEXT PRIMARY KEY,
+              title TEXT NOT NULL,
+              amount_paise INTEGER NOT NULL,
+              is_enabled INTEGER NOT NULL DEFAULT 1,
+              deleted_at INTEGER
+            )
+          ''');
+        }
       },
     );
     return _db!;
@@ -107,6 +128,7 @@ class PocketDatabase {
   Future<void> wipe() async {
     final database = await db;
     await database.transaction((txn) async {
+      await txn.delete('fixed_deductions');
       await txn.delete('friend_splits');
       await txn.delete('txns');
       await txn.delete('outings');

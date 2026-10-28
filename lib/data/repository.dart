@@ -94,11 +94,25 @@ class PocketRepository {
       isSettled: false,
     ),
   ];
+  static final List<FixedDeduction> _webDeductions = [
+    const FixedDeduction(
+      id: 'fd-1',
+      title: 'College Bus Pass',
+      amountPaise: 40000,
+      isEnabled: true,
+    ),
+    const FixedDeduction(
+      id: 'fd-2',
+      title: 'Mobile Data Recharge',
+      amountPaise: 29900,
+      isEnabled: true,
+    ),
+  ];
 
   Future<Ledger> load() async {
     if (kIsWeb) {
       return Ledger(
-        settings: _webSettings,
+        settings: _webSettings.copyWith(fixedDeductions: List.of(_webDeductions)),
         categories: List.of(_webCategories),
         transactions: List.of(_webTxns),
         outings: List.of(_webOutings),
@@ -109,6 +123,13 @@ class PocketRepository {
     final db = await _db.db;
     await _ensureSeed(db);
 
+    final dedRows = await db.query(
+      'fixed_deductions',
+      where: 'deleted_at IS NULL',
+      orderBy: 'title ASC',
+    );
+    final deductions = dedRows.map(_deductionFromRow).toList();
+
     final settingRows = await db.query('settings');
     final map = {for (final r in settingRows) r['key'] as String: r['value'] as String};
     final settings = Settings(
@@ -117,6 +138,11 @@ class PocketRepository {
       hideAmounts: map['hide_amounts'] == '1',
       onboarded: map['onboarded'] == '1',
       pacingMode: map['pacing_mode'] == 'weekly' ? PacingMode.weekly : PacingMode.daily,
+      leftoverPolicy: map['leftover_policy'] == 'outingsPiggyBank'
+          ? LeftoverPolicy.outingsPiggyBank
+          : LeftoverPolicy.dynamicDistribute,
+      biometricEnabled: map['biometric_enabled'] == '1',
+      fixedDeductions: deductions,
     );
 
     final catRows = await db.query('categories', orderBy: 'sort_order ASC');
@@ -185,6 +211,8 @@ class PocketRepository {
     await put('hide_amounts', s.hideAmounts ? '1' : '0');
     await put('onboarded', s.onboarded ? '1' : '0');
     await put('pacing_mode', s.pacingMode.name);
+    await put('leftover_policy', s.leftoverPolicy.name);
+    await put('biometric_enabled', s.biometricEnabled ? '1' : '0');
   }
 
   Future<void> addCategory(String name, {String icon = 'custom'}) async {
@@ -487,6 +515,7 @@ class PocketRepository {
       _webOutings.clear();
       _webTxns.clear();
       _webSplits.clear();
+      _webDeductions.clear();
       return;
     }
     await _db.wipe();
@@ -548,6 +577,70 @@ class PocketRepository {
       settledAtMs: r['settled_at'] as int?,
     );
   }
+
+  Future<FixedDeduction> addFixedDeduction({
+    required String title,
+    required int amountPaise,
+    bool isEnabled = true,
+  }) async {
+    final d = FixedDeduction(
+      id: _uuid.v4(),
+      title: title.trim(),
+      amountPaise: amountPaise,
+      isEnabled: isEnabled,
+    );
+
+    if (kIsWeb) {
+      _webDeductions.add(d);
+      return d;
+    }
+
+    final db = await _db.db;
+    await db.insert('fixed_deductions', _deductionToRow(d));
+    return d;
+  }
+
+  Future<void> updateFixedDeduction(FixedDeduction d) async {
+    if (kIsWeb) {
+      final idx = _webDeductions.indexWhere((x) => x.id == d.id);
+      if (idx != -1) _webDeductions[idx] = d;
+      return;
+    }
+
+    final db = await _db.db;
+    await db.update('fixed_deductions', _deductionToRow(d), where: 'id = ?', whereArgs: [d.id]);
+  }
+
+  Future<void> deleteFixedDeduction(String id) async {
+    if (kIsWeb) {
+      _webDeductions.removeWhere((x) => x.id == id);
+      return;
+    }
+
+    final db = await _db.db;
+    await db.update(
+      'fixed_deductions',
+      {'deleted_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  FixedDeduction _deductionFromRow(Map<String, Object?> r) {
+    return FixedDeduction(
+      id: r['id'] as String,
+      title: r['title'] as String,
+      amountPaise: r['amount_paise'] as int,
+      isEnabled: (r['is_enabled'] as int) == 1,
+    );
+  }
+
+  Map<String, Object?> _deductionToRow(FixedDeduction d) => {
+        'id': d.id,
+        'title': d.title,
+        'amount_paise': d.amountPaise,
+        'is_enabled': d.isEnabled ? 1 : 0,
+      };
 
   Map<String, Object?> _splitToRow(FriendSplit s) => {
         'id': s.id,

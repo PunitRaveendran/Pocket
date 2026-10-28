@@ -122,6 +122,36 @@ class FriendSplit {
   }
 }
 
+enum LeftoverPolicy { dynamicDistribute, outingsPiggyBank }
+
+class FixedDeduction {
+  const FixedDeduction({
+    required this.id,
+    required this.title,
+    required this.amountPaise,
+    this.isEnabled = true,
+  });
+
+  final String id;
+  final String title;
+  final int amountPaise;
+  final bool isEnabled;
+
+  FixedDeduction copyWith({
+    String? id,
+    String? title,
+    int? amountPaise,
+    bool? isEnabled,
+  }) {
+    return FixedDeduction(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      amountPaise: amountPaise ?? this.amountPaise,
+      isEnabled: isEnabled ?? this.isEnabled,
+    );
+  }
+}
+
 class Settings {
   const Settings({
     required this.stipendPaise,
@@ -129,6 +159,9 @@ class Settings {
     required this.hideAmounts,
     required this.onboarded,
     this.pacingMode = PacingMode.daily,
+    this.leftoverPolicy = LeftoverPolicy.dynamicDistribute,
+    this.biometricEnabled = false,
+    this.fixedDeductions = const [],
   });
 
   final int stipendPaise;
@@ -136,6 +169,15 @@ class Settings {
   final bool hideAmounts;
   final bool onboarded;
   final PacingMode pacingMode;
+  final LeftoverPolicy leftoverPolicy;
+  final bool biometricEnabled;
+  final List<FixedDeduction> fixedDeductions;
+
+  int get totalFixedDeductionsPaise =>
+      fixedDeductions.where((d) => d.isEnabled).fold(0, (sum, d) => sum + d.amountPaise);
+
+  int get effectiveStipendPaise =>
+      (stipendPaise - totalFixedDeductionsPaise).clamp(0, 999999999);
 
   Settings copyWith({
     int? stipendPaise,
@@ -143,6 +185,9 @@ class Settings {
     bool? hideAmounts,
     bool? onboarded,
     PacingMode? pacingMode,
+    LeftoverPolicy? leftoverPolicy,
+    bool? biometricEnabled,
+    List<FixedDeduction>? fixedDeductions,
   }) {
     return Settings(
       stipendPaise: stipendPaise ?? this.stipendPaise,
@@ -150,6 +195,9 @@ class Settings {
       hideAmounts: hideAmounts ?? this.hideAmounts,
       onboarded: onboarded ?? this.onboarded,
       pacingMode: pacingMode ?? this.pacingMode,
+      leftoverPolicy: leftoverPolicy ?? this.leftoverPolicy,
+      biometricEnabled: biometricEnabled ?? this.biometricEnabled,
+      fixedDeductions: fixedDeductions ?? this.fixedDeductions,
     );
   }
 
@@ -159,6 +207,9 @@ class Settings {
     hideAmounts: false,
     onboarded: false,
     pacingMode: PacingMode.daily,
+    leftoverPolicy: LeftoverPolicy.dynamicDistribute,
+    biometricEnabled: false,
+    fixedDeductions: [],
   );
 }
 

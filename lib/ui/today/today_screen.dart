@@ -11,6 +11,7 @@ import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../sheets/overspend_sheet.dart';
+import '../sheets/receipt_sheet.dart';
 import '../sheets/spend_sheet.dart';
 import '../widgets/allowance_meter.dart';
 import '../widgets/category_icon.dart';
@@ -121,6 +122,12 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
         }
 
         final dayNumberInCycle = _selectedDate.dateTime.difference(cycle.start.dateTime).inDays + 1;
+        final daysRemainingInCycle = cycle.endInclusive.dateTime.difference(_selectedDate.dateTime).inDays + 1;
+        final pacePaise = safeDailyPace(ledger, cycle, _selectedDate);
+        final isCrunchMode = daysRemainingInCycle >= 3 && daysRemainingInCycle <= 14 && pacePaise > 0 && pacePaise < 4000;
+        final piggyPaise = ledger.settings.leftoverPolicy == LeftoverPolicy.outingsPiggyBank
+            ? outingsPiggyBank(ledger, cycle, _selectedDate)
+            : 0;
 
         return CustomScrollView(
           slivers: [
@@ -309,6 +316,90 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ],
                       ),
                     ),
+                    if (isCrunchMode) ...[
+                      const SizedBox(height: Space.x3),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: t.card,
+                          border: Border.all(color: t.over.withValues(alpha: 0.6)),
+                          borderRadius: BorderRadius.circular(Space.controlRadius),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.tips_and_updates_outlined, size: 18, color: t.over),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Month-End Crunch Mode: ₹${pacePaise ~/ 100}/day left for $daysRemainingInCycle days',
+                                    style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  Text(
+                                    'Mess food & essential canteen meals only to finish the cycle safely.',
+                                    style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (piggyPaise > 0) ...[
+                      const SizedBox(height: Space.x3),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: t.card,
+                          border: Border.all(color: t.rule),
+                          borderRadius: BorderRadius.circular(Space.controlRadius),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.savings_outlined, size: 16, color: t.accent),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Outings Piggy Bank: ₹${piggyPaise ~/ 100} saved from past unspent days',
+                                style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (daysRemainingInCycle <= 3) ...[
+                      const SizedBox(height: Space.x3),
+                      InkWell(
+                        onTap: () => showMonthEndReceipt(context, ledger),
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: t.card,
+                            border: Border.all(color: t.rule),
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.receipt_long_outlined, size: 16, color: t.inkSoft),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Cycle wrapping up · Tap for Month-End Paper Receipt',
+                                  style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              Icon(Icons.chevron_right, size: 16, color: t.inkSoft),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: Space.x6),
                     PrimaryButton(
                       label: Copy.addSpend,

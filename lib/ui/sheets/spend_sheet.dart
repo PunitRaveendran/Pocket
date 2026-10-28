@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/dates.dart';
+import '../../core/upi_sms_parser.dart';
 import '../../data/models.dart';
 import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
@@ -53,6 +55,9 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
   late Direction _direction;
   late final TextEditingController _merchant;
   late final TextEditingController _note;
+  bool _splitWithFriend = false;
+  late final TextEditingController _friendNameController;
+  late final TextEditingController _friendShareController;
 
   @override
   void initState() {
@@ -66,12 +71,16 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
     _direction = e?.direction ?? Direction.debit;
     _merchant = TextEditingController(text: e?.merchant ?? '');
     _note = TextEditingController(text: e?.note ?? '');
+    _friendNameController = TextEditingController();
+    _friendShareController = TextEditingController();
   }
 
   @override
   void dispose() {
     _merchant.dispose();
     _note.dispose();
+    _friendNameController.dispose();
+    _friendShareController.dispose();
     super.dispose();
   }
 
@@ -89,8 +98,104 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
     }
   }
 
+  Future<void> _pasteUpiSms() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text ?? '';
+    final parsed = UpiSmsParser.parse(text);
+
+    if (parsed != null) {
+      setState(() {
+        _amount = AmountValue.fromPaise(parsed.amountPaise);
+        _merchant.text = parsed.merchant;
+        _direction = parsed.isDebit ? Direction.debit : Direction.credit;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Auto-detected ₹${parsed.amountPaise ~/ 100} at ${parsed.merchant}',
+            ),
+          ),
+        );
+      }
+    } else {
+      _showManualSmsPasteDialog();
+    }
+  }
+
+  Future<void> _showManualSmsPasteDialog() async {
+    final t = TokenScope.of(context);
+    final controller = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Paste Bank / UPI SMS', style: TypeScale.heading(t.ink)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Paste any SBI, HDFC, ICICI, GPay or Paytm message. Pocket will extract the amount and merchant on-device.',
+              style: TypeScale.caption(t.inkSoft),
+            ),
+            const SizedBox(height: Space.x3),
+            TextField(
+              controller: controller,
+              maxLines: 4,
+              autofocus: true,
+              style: TypeScale.body(t.ink),
+              decoration: InputDecoration(
+                hintText: 'e.g. Paid Rs 40.00 at Sharma Canteen UPI...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft))),
+          TextButton(
+            onPressed: () {
+              final parsed = UpiSmsParser.parse(controller.text);
+              if (parsed != null) {
+                setState(() {
+                  _amount = AmountValue.fromPaise(parsed.amountPaise);
+                  _merchant.text = parsed.merchant;
+                  _direction = parsed.isDebit ? Direction.debit : Direction.credit;
+                });
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Auto-filled ₹${parsed.amountPaise ~/ 100} at ${parsed.merchant}')),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Could not find debit/credit amount in this text')),
+                );
+              }
+            },
+            child: Text('Extract', style: TypeScale.body(t.accent)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _save() async {
     if (_amount.paiseTotal <= 0) return;
+
+    final friendShareRupees = int.tryParse(_friendShareController.text.trim()) ?? 0;
+    final friendSharePaise = friendShareRupees * 100;
+    final friendName = _friendNameController.text.trim();
+
+    if (_splitWithFriend && friendName.isNotEmpty && friendSharePaise > 0) {
+      await ref.read(ledgerProvider.notifier).addFriendSplit(
+            friendName: friendName,
+            amountPaise: friendSharePaise,
+            direction: SplitDirection.youAreOwed,
+            date: _date,
+            note: 'Split share of ${_merchant.text.trim().isNotEmpty ? _merchant.text.trim() : "bill"}',
+          );
+    }
+
     await ref.read(ledgerProvider.notifier).addDailySpend(
           amountPaise: _amount.paiseTotal,
           categoryId: _categoryId,
@@ -233,6 +338,31 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                   ),
                 ],
               ),
+              const SizedBox(height: Space.x3),
+              // On-Device UPI SMS Auto-detection button
+              InkWell(
+                onTap: _pasteUpiSms,
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: t.card,
+                    border: Border.all(color: t.rule),
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.sms_outlined, size: 14, color: t.accent),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Auto-Fill from UPI / Bank SMS',
+                        style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: Space.x4),
               AmountDisplay(value: _amount),
               if (isCredit)
@@ -294,6 +424,88 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                   focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.accent)),
                 ),
               ),
+              if (!isCredit && widget.editing == null) ...[
+                const SizedBox(height: Space.x3),
+                // Inline Friend Split section
+                InkWell(
+                  onTap: () => setState(() => _splitWithFriend = !_splitWithFriend),
+                  borderRadius: BorderRadius.circular(Space.controlRadius),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _splitWithFriend ? Icons.check_box_outlined : Icons.check_box_outline_blank,
+                          size: 18,
+                          color: _splitWithFriend ? t.accent : t.inkSoft,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Split part of this bill with a friend',
+                          style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_splitWithFriend) ...[
+                  const SizedBox(height: Space.x2),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: t.card,
+                      border: Border.all(color: t.rule),
+                      borderRadius: BorderRadius.circular(Space.controlRadius),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: TextField(
+                                controller: _friendNameController,
+                                style: TypeScale.body(t.ink),
+                                cursorColor: t.accent,
+                                decoration: InputDecoration(
+                                  labelText: "Friend's name",
+                                  labelStyle: TypeScale.caption(t.inkSoft),
+                                  hintText: 'e.g. Rahul',
+                                  isDense: true,
+                                  border: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: Space.x3),
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: _friendShareController,
+                                keyboardType: TextInputType.number,
+                                style: TypeScale.body(t.ink),
+                                cursorColor: t.accent,
+                                decoration: InputDecoration(
+                                  labelText: "Their share (₹)",
+                                  labelStyle: TypeScale.caption(t.inkSoft),
+                                  hintText: 'e.g. 150',
+                                  isDense: true,
+                                  border: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'This will log the full expense and automatically create a split in Splits screen owed to you.',
+                          style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
               const SizedBox(height: Space.x4),
               AmountPad(
                 value: _amount,

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick_spend"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/app_name"
+        android:shortcutLongLabel="Quick Add Spend">
+        <intent
+            android:action="app.pocket.pocket.QUICK_SPEND"
+            android:targetPackage="app.pocket.pocket"
+            android:targetClass="app.pocket.pocket.MainActivity" />
+    </shortcut>
+</shortcuts>
