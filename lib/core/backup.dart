@@ -20,6 +20,7 @@ class BackupService {
         'pacing_mode': s.pacingMode.name,
         'leftover_policy': s.leftoverPolicy.name,
         'biometric_enabled': s.biometricEnabled,
+        'is_vacation_mode': s.isVacationMode,
       },
       'categories': [
         for (final c in ledger.categories)
@@ -103,6 +104,7 @@ class BackupService {
             ? LeftoverPolicy.outingsPiggyBank
             : LeftoverPolicy.dynamicDistribute,
         biometricEnabled: sMap['biometric_enabled'] as bool? ?? false,
+        isVacationMode: sMap['is_vacation_mode'] as bool? ?? false,
       );
       await repo.saveSettings(settings);
 

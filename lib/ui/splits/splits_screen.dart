@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/dates.dart';
 import '../../core/money.dart';
@@ -317,20 +318,38 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
                           ),
                           if (!item.isSettled) ...[
                             const SizedBox(height: 8),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  minimumSize: Size.zero,
-                                  side: BorderSide(color: t.accent),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    minimumSize: Size.zero,
+                                    side: BorderSide(color: t.accent),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(Space.controlRadius),
+                                    ),
                                   ),
+                                  onPressed: () => _confirmSettle(context, item),
+                                  child: Text('Settle Up', style: TypeScale.caption(t.accent)),
                                 ),
-                                onPressed: () => _confirmSettle(context, item),
-                                child: Text('Settle Up', style: TypeScale.caption(t.accent)),
-                              ),
+                                if (isOwed) ...[
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      side: BorderSide(color: t.rule),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                                      ),
+                                    ),
+                                    icon: Icon(Icons.share_outlined, size: 13, color: t.inkSoft),
+                                    label: Text('Remind / UPI', style: TypeScale.caption(t.inkSoft)),
+                                    onPressed: () => _openShareReminder(context, item),
+                                  ),
+                                ],
+                              ],
                             ),
                           ],
                         ],
@@ -339,13 +358,20 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
                         icon: Icon(Icons.more_vert, size: 18, color: t.inkSoft),
                         color: t.card,
                         onSelected: (val) {
-                          if (val == 'edit') {
+                          if (val == 'remind') {
+                            _openShareReminder(context, item);
+                          } else if (val == 'edit') {
                             showSplitSheet(context, editing: item);
                           } else if (val == 'delete') {
                             _confirmDelete(context, item);
                           }
                         },
                         itemBuilder: (ctx) => [
+                          if (isOwed && !item.isSettled)
+                            PopupMenuItem(
+                              value: 'remind',
+                              child: Text('Remind (WhatsApp / UPI)', style: TypeScale.body(t.ink)),
+                            ),
                           PopupMenuItem(
                             value: 'edit',
                             child: Text('Edit', style: TypeScale.body(t.ink)),
@@ -577,6 +603,156 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _openShareReminder(BuildContext context, FriendSplit item) {
+    final t = TokenScope.of(context);
+    final rupees = item.amountPaise ~/ 100;
+    final forText = item.note.isNotEmpty ? ' for ${item.note}' : '';
+    final message = 'Hey ${item.friendName}! Just a quick reminder about your share of ₹$rupees$forText on Pocket. You can GPay/PhonePe me when you get a chance! 🙌';
+    final upiUriString = 'upi://pay?pn=PocketUser&am=$rupees&cu=INR&tn=${Uri.encodeComponent(item.note.isEmpty ? 'Pocket Split' : item.note)}';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: t.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Space.cardRadius)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(Space.margin, Space.x4, Space.margin, Space.x6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: t.rule,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: Space.x4),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: t.accentTint,
+                    child: Text(
+                      item.friendName.isNotEmpty ? item.friendName[0].toUpperCase() : '?',
+                      style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(width: Space.x3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Remind ${item.friendName}', style: TypeScale.title(t.ink)),
+                        Text('Share of ₹$rupees$forText', style: TypeScale.caption(t.inkSoft)),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    Money.formatPaise(item.amountPaise),
+                    style: TypeScale.money(t.accent, size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Space.x4),
+              // Message preview card
+              Container(
+                padding: const EdgeInsets.all(Space.x3),
+                decoration: BoxDecoration(
+                  color: t.paper,
+                  border: Border.all(color: t.rule),
+                  borderRadius: BorderRadius.circular(Space.controlRadius),
+                ),
+                child: Text(
+                  message,
+                  style: TypeScale.body(t.ink).copyWith(fontSize: 13, height: 1.4),
+                ),
+              ),
+              const SizedBox(height: Space.x4),
+              // Action buttons
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                  ),
+                ),
+                icon: const Icon(Icons.chat, size: 18),
+                label: const Text('Send on WhatsApp', style: TextStyle(fontWeight: FontWeight.w600)),
+                onPressed: () async {
+                  final waUri = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(message)}');
+                  try {
+                    await launchUrl(waUri, mode: LaunchMode.externalApplication);
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Could not open WhatsApp. Copied text to clipboard!')),
+                      );
+                    }
+                    await Clipboard.setData(ClipboardData(text: message));
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+              ),
+              const SizedBox(height: Space.x2),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: t.rule),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                  ),
+                ),
+                icon: Icon(Icons.qr_code_2, size: 18, color: t.ink),
+                label: Text(
+                  'Open UPI App (GPay / PhonePe / Paytm)',
+                  style: TypeScale.body(t.ink).copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                onPressed: () async {
+                  final upiUri = Uri.parse(upiUriString);
+                  try {
+                    final ok = await launchUrl(upiUri, mode: LaunchMode.externalApplication);
+                    if (!ok) throw Exception();
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('UPI link copied to clipboard!')),
+                      );
+                    }
+                    await Clipboard.setData(ClipboardData(text: upiUriString));
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+              ),
+              const SizedBox(height: Space.x2),
+              TextButton.icon(
+                icon: Icon(Icons.copy_outlined, size: 16, color: t.inkSoft),
+                label: Text('Copy Reminder Text', style: TypeScale.caption(t.inkSoft)),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: message));
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Reminder message copied to clipboard!')),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

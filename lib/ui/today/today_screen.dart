@@ -100,9 +100,6 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                 );
         }
 
-        final figureColor = remaining < 0 ? t.over : t.ink;
-        final figure = Money.formatPaise(remaining.abs(), hide: hide);
-
         // Filter transactions for this day or week
         final filtered = _filter == null
             ? dayTxns
@@ -121,10 +118,19 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
           }
         }
 
+        final isVacation = ledger.settings.isVacationMode;
+        final figureColor = isVacation ? t.accent : (remaining < 0 ? t.over : t.ink);
+        final figure = isVacation
+            ? Money.formatPaise(totalSpentToday.clamp(0, 999999999), hide: hide)
+            : Money.formatPaise(remaining.abs(), hide: hide);
+        final displayLabel = isVacation ? 'vacation pause' : label;
+        final displayCaption = isVacation ? 'Daily allowance paused while staying home' : caption;
+        final displayRatio = isVacation ? 0.0 : usedRatio;
+
         final dayNumberInCycle = _selectedDate.dateTime.difference(cycle.start.dateTime).inDays + 1;
         final daysRemainingInCycle = cycle.endInclusive.dateTime.difference(_selectedDate.dateTime).inDays + 1;
         final pacePaise = safeDailyPace(ledger, cycle, _selectedDate);
-        final isCrunchMode = daysRemainingInCycle >= 3 && daysRemainingInCycle <= 14 && pacePaise > 0 && pacePaise < 4000;
+        final isCrunchMode = !isVacation && daysRemainingInCycle >= 3 && daysRemainingInCycle <= 14 && pacePaise > 0 && pacePaise < 4000;
         final piggyPaise = ledger.settings.leftoverPolicy == LeftoverPolicy.outingsPiggyBank
             ? outingsPiggyBank(ledger, cycle, _selectedDate)
             : 0;
@@ -137,6 +143,42 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (isVacation) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: Space.x3),
+                        padding: const EdgeInsets.symmetric(horizontal: Space.x3, vertical: Space.x2),
+                        decoration: BoxDecoration(
+                          color: t.card,
+                          borderRadius: BorderRadius.circular(Space.controlRadius),
+                          border: Border.all(color: t.rule),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.beach_access, size: 20, color: t.accent),
+                            const SizedBox(width: Space.x2),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Semester Break Active',
+                                    style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w700, fontSize: 13),
+                                  ),
+                                  Text(
+                                    'Daily allowance paused while at home. Spends track without depleting campus budget.',
+                                    style: TypeScale.caption(t.inkSoft),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => ref.read(ledgerProvider.notifier).setVacationMode(false),
+                              child: Text('Resume', style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     // Mode Switcher (Daily / Weekly) and Date Navigation Bar
                     Row(
                       children: [
@@ -245,13 +287,13 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                     ),
                     const SizedBox(height: Space.x3),
                     Semantics(
-                      label: '${Money.spokenRupees(remaining.abs())} $label',
+                      label: '${Money.spokenRupees(remaining.abs())} $displayLabel',
                       child: Text(figure, style: TypeScale.figure(figureColor)),
                     ),
-                    Text(label, style: TypeScale.body(t.inkSoft)),
+                    Text(displayLabel, style: TypeScale.body(t.inkSoft)),
                     const SizedBox(height: Space.x4),
-                    AllowanceMeter(ratio: usedRatio, caption: caption),
-                    if (remaining < 0 && topCategoryName != null) ...[
+                    AllowanceMeter(ratio: displayRatio, caption: displayCaption),
+                    if (!isVacation && remaining < 0 && topCategoryName != null) ...[
                       const SizedBox(height: Space.x2),
                       Text(
                         Copy.categoryTook(
@@ -262,7 +304,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       ),
                     ],
                     // Overspend recovery action banner
-                    if (remaining < 0) ...[
+                    if (!isVacation && remaining < 0) ...[
                       const SizedBox(height: Space.x4),
                       InkWell(
                         onTap: () => showOverspendSheet(

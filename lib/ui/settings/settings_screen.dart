@@ -139,6 +139,17 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
           const Hairline(indent: Space.margin),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            secondary: Icon(Icons.beach_access_outlined, size: 20, color: t.inkSoft),
+            title: Text('Semester Break / Vacation Pause', style: TypeScale.body(t.ink)),
+            subtitle: Text('Pause daily allowance pacing while staying home with family', style: TypeScale.caption(t.inkSoft)),
+            value: s.isVacationMode,
+            activeThumbColor: t.paper,
+            activeTrackColor: t.accent,
+            onChanged: (v) => ref.read(ledgerProvider.notifier).setVacationMode(v),
+          ),
+          const Hairline(indent: Space.margin),
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
             leading: Icon(Icons.receipt_long_outlined, size: 20, color: t.inkSoft),

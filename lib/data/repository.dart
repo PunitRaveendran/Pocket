@@ -143,6 +143,7 @@ class PocketRepository {
           : LeftoverPolicy.dynamicDistribute,
       biometricEnabled: map['biometric_enabled'] == '1',
       fixedDeductions: deductions,
+      isVacationMode: map['is_vacation_mode'] == '1',
     );
 
     final catRows = await db.query('categories', orderBy: 'sort_order ASC');
@@ -213,6 +214,7 @@ class PocketRepository {
     await put('pacing_mode', s.pacingMode.name);
     await put('leftover_policy', s.leftoverPolicy.name);
     await put('biometric_enabled', s.biometricEnabled ? '1' : '0');
+    await put('is_vacation_mode', s.isVacationMode ? '1' : '0');
   }
 
   Future<void> addCategory(String name, {String icon = 'custom'}) async {

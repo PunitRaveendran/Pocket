@@ -270,6 +270,13 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> setVacationMode(bool enabled) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    await _repo.saveSettings(current.settings.copyWith(isVacationMode: enabled));
+    await _reload();
+  }
+
   Future<void> wipe() async {
     await _repo.wipe();
     await _reload();

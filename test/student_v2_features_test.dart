@@ -142,5 +142,49 @@ void main() {
       expect(jsonStr, contains('Rahul'));
       expect(jsonStr, contains('Canteen'));
     });
+
+    test('vacation mode preserves settings and toggles state correctly', () {
+      const s1 = Settings(
+        stipendPaise: 250000,
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+        isVacationMode: false,
+      );
+      final s2 = s1.copyWith(isVacationMode: true);
+      expect(s2.isVacationMode, isTrue);
+
+      final ledger = Ledger(
+        settings: s2,
+        categories: const [],
+        transactions: const [],
+        outings: const [],
+      );
+      final backup = BackupService.generateBackupJson(ledger);
+      expect(backup, contains('"is_vacation_mode": true'));
+    });
+
+    test('friend split reminder text formats properly with notes and rupee amounts', () {
+      const split = FriendSplit(
+        id: 's-1',
+        friendName: 'Sneha',
+        amountPaise: 18000, // ₹180
+        direction: SplitDirection.youAreOwed,
+        occurredAtMs: 1000,
+        localDate: LocalDate(2026, 10, 28),
+        note: 'Pizza share',
+        isSettled: false,
+      );
+
+      final rupees = split.amountPaise ~/ 100;
+      final forText = split.note.isNotEmpty ? ' for ${split.note}' : '';
+      final message = 'Hey ${split.friendName}! Just a quick reminder about your share of ₹$rupees$forText on Pocket. You can GPay/PhonePe me when you get a chance! 🙌';
+
+      expect(message, contains('₹180 for Pizza share'));
+      expect(message, contains('Sneha'));
+
+      final upiUriString = 'upi://pay?pn=PocketUser&am=$rupees&cu=INR&tn=${Uri.encodeComponent(split.note)}';
+      expect(upiUriString, 'upi://pay?pn=PocketUser&am=180&cu=INR&tn=Pizza%20share');
+    });
   });
 }

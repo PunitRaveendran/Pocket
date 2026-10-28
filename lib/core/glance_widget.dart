@@ -12,6 +12,17 @@ class GlanceWidgetService {
 
   static Future<void> update(Ledger ledger) async {
     try {
+      if (ledger.settings.isVacationMode) {
+        await HomeWidget.saveWidgetData<String>('amount_text', '🌴 Vacation Break');
+        await HomeWidget.saveWidgetData<String>('caption_text', 'Pacing paused while at home');
+        await HomeWidget.saveWidgetData<int>('progress_percent', 0);
+        await HomeWidget.updateWidget(
+          name: androidWidgetName,
+          androidName: androidWidgetName,
+        );
+        return;
+      }
+
       final today = LocalDate.today();
       final todayView = buildToday(ledger, date: today);
       final remaining = todayView.budget.remaining;

@@ -162,6 +162,7 @@ class Settings {
     this.leftoverPolicy = LeftoverPolicy.dynamicDistribute,
     this.biometricEnabled = false,
     this.fixedDeductions = const [],
+    this.isVacationMode = false,
   });
 
   final int stipendPaise;
@@ -172,6 +173,7 @@ class Settings {
   final LeftoverPolicy leftoverPolicy;
   final bool biometricEnabled;
   final List<FixedDeduction> fixedDeductions;
+  final bool isVacationMode;
 
   int get totalFixedDeductionsPaise =>
       fixedDeductions.where((d) => d.isEnabled).fold(0, (sum, d) => sum + d.amountPaise);
@@ -188,6 +190,7 @@ class Settings {
     LeftoverPolicy? leftoverPolicy,
     bool? biometricEnabled,
     List<FixedDeduction>? fixedDeductions,
+    bool? isVacationMode,
   }) {
     return Settings(
       stipendPaise: stipendPaise ?? this.stipendPaise,
@@ -198,6 +201,7 @@ class Settings {
       leftoverPolicy: leftoverPolicy ?? this.leftoverPolicy,
       biometricEnabled: biometricEnabled ?? this.biometricEnabled,
       fixedDeductions: fixedDeductions ?? this.fixedDeductions,
+      isVacationMode: isVacationMode ?? this.isVacationMode,
     );
   }
 
@@ -210,6 +214,7 @@ class Settings {
     leftoverPolicy: LeftoverPolicy.dynamicDistribute,
     biometricEnabled: false,
     fixedDeductions: [],
+    isVacationMode: false,
   );
 }
 
