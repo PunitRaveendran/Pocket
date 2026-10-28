@@ -1,0 +1,32 @@
+name: pocket
+description: A student daily ledger. Monthly stipend into a daily allowance, with outings kept extra.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  intl: ^0.20.2
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  sqflite: ^2.4.2
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Source Serif 4
+      fonts:
+        - asset: assets/fonts/SourceSerif4.ttf
+    - family: IBM Plex Sans
+      fonts:
+        - asset: assets/fonts/IBMPlexSans.ttf

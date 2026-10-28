@@ -1,0 +1,79 @@
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
+
+class PocketDatabase {
+  PocketDatabase._();
+  static final PocketDatabase instance = PocketDatabase._();
+
+  Database? _db;
+
+  Future<Database> get db async {
+    if (_db != null) return _db!;
+    final dir = await getApplicationDocumentsDirectory();
+    final path = p.join(dir.path, 'pocket.db');
+    _db = await openDatabase(
+      path,
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE categories (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            is_system INTEGER NOT NULL,
+            sort_order INTEGER NOT NULL
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE outings (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            local_date TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            deleted_at INTEGER
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE txns (
+            id TEXT PRIMARY KEY,
+            amount_paise INTEGER NOT NULL,
+            direction TEXT NOT NULL,
+            occurred_at INTEGER NOT NULL,
+            local_date TEXT NOT NULL,
+            merchant TEXT NOT NULL,
+            category_id TEXT NOT NULL,
+            bucket TEXT NOT NULL,
+            outing_id TEXT,
+            note TEXT NOT NULL DEFAULT '',
+            deleted_at INTEGER
+          )
+        ''');
+        await db.execute('CREATE INDEX idx_txns_date ON txns(local_date)');
+        await db.execute('CREATE INDEX idx_txns_outing ON txns(outing_id)');
+      },
+    );
+    return _db!;
+  }
+
+  Future<void> close() async {
+    await _db?.close();
+    _db = null;
+  }
+
+  Future<void> wipe() async {
+    final database = await db;
+    await database.transaction((txn) async {
+      await txn.delete('txns');
+      await txn.delete('outings');
+      await txn.delete('categories');
+      await txn.delete('settings');
+    });
+  }
+}
