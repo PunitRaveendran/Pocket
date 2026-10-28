@@ -14,7 +14,7 @@ class PocketDatabase {
     final path = p.join(dir.path, 'pocket.db');
     _db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE settings (
@@ -57,6 +57,43 @@ class PocketDatabase {
         ''');
         await db.execute('CREATE INDEX idx_txns_date ON txns(local_date)');
         await db.execute('CREATE INDEX idx_txns_outing ON txns(outing_id)');
+
+        await db.execute('''
+          CREATE TABLE friend_splits (
+            id TEXT PRIMARY KEY,
+            friend_name TEXT NOT NULL,
+            amount_paise INTEGER NOT NULL,
+            direction TEXT NOT NULL,
+            occurred_at INTEGER NOT NULL,
+            local_date TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            is_settled INTEGER NOT NULL DEFAULT 0,
+            settled_at INTEGER,
+            deleted_at INTEGER
+          )
+        ''');
+        await db.execute('CREATE INDEX idx_splits_date ON friend_splits(local_date)');
+        await db.execute('CREATE INDEX idx_splits_friend ON friend_splits(friend_name)');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE friend_splits (
+              id TEXT PRIMARY KEY,
+              friend_name TEXT NOT NULL,
+              amount_paise INTEGER NOT NULL,
+              direction TEXT NOT NULL,
+              occurred_at INTEGER NOT NULL,
+              local_date TEXT NOT NULL,
+              note TEXT NOT NULL DEFAULT '',
+              is_settled INTEGER NOT NULL DEFAULT 0,
+              settled_at INTEGER,
+              deleted_at INTEGER
+            )
+          ''');
+          await db.execute('CREATE INDEX idx_splits_date ON friend_splits(local_date)');
+          await db.execute('CREATE INDEX idx_splits_friend ON friend_splits(friend_name)');
+        }
       },
     );
     return _db!;
@@ -70,6 +107,7 @@ class PocketDatabase {
   Future<void> wipe() async {
     final database = await db;
     await database.transaction((txn) async {
+      await txn.delete('friend_splits');
       await txn.delete('txns');
       await txn.delete('outings');
       await txn.delete('categories');

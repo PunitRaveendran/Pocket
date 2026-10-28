@@ -8,6 +8,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../widgets/amount_pad.dart';
 import '../widgets/chips.dart';
+import '../widgets/cycle_day_picker.dart';
 import '../widgets/primary_button.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -107,16 +108,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           t,
           Copy.onboardingTitle2,
           Copy.onboardingBody2,
-          Wrap(
-            spacing: Space.x2,
-            runSpacing: Space.x2,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final d in [1, 5, 10, 15, 20, 25])
-                LedgerChip(
-                  label: _ordinal(d),
-                  selected: _startDay == d,
-                  onTap: () => setState(() => _startDay = d),
-                ),
+              Text(
+                'Selected: ${CycleDayPicker.ordinal(_startDay)} of every month',
+                style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: Space.x4),
+              CycleDayPicker(
+                selectedDay: _startDay,
+                onSelected: (d) => setState(() => _startDay = d),
+              ),
             ],
           ),
         );
@@ -135,12 +138,5 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         child,
       ],
     );
-  }
-
-  String _ordinal(int d) {
-    if (d == 1) return '1st';
-    if (d == 2) return '2nd';
-    if (d == 3) return '3rd';
-    return '${d}th';
   }
 }

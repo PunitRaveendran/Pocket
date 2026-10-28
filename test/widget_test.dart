@@ -9,6 +9,7 @@ import 'package:pocket/theme/app_theme.dart';
 import 'package:pocket/theme/tokens.dart';
 import 'package:pocket/ui/insights/insights_screen.dart';
 import 'package:pocket/ui/outings/outings_screen.dart';
+import 'package:pocket/ui/splits/splits_screen.dart';
 import 'package:pocket/ui/today/today_screen.dart';
 import 'package:pocket/ui/widgets/allowance_meter.dart';
 import 'package:pocket/ui/widgets/amount_pad.dart';
@@ -70,6 +71,26 @@ Widget _wrap(Widget child, {Ledger? ledger}) {
             title: 'Nandi Hills Trek',
             localDate: LocalDate.today(),
             note: 'Weekend with batchmates',
+          ),
+        ],
+        friendSplits: [
+          FriendSplit(
+            id: 's1',
+            friendName: 'Rahul',
+            amountPaise: 12000,
+            direction: SplitDirection.youAreOwed,
+            occurredAtMs: 1000,
+            localDate: LocalDate.today(),
+            note: 'Biryani split',
+          ),
+          FriendSplit(
+            id: 's2',
+            friendName: 'Sneha',
+            amountPaise: 5000,
+            direction: SplitDirection.youOwe,
+            occurredAtMs: 2000,
+            localDate: LocalDate.today(),
+            note: 'Lab xerox',
           ),
         ],
       );
@@ -194,9 +215,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Safe Daily Pace'), findsOneWidget);
-    expect(find.text('Last seven days'), findsOneWidget);
+    expect(find.text('Visual Analytics'), findsOneWidget);
+    expect(find.text('7-Day Bars'), findsOneWidget);
     expect(find.text('By category'), findsOneWidget);
     expect(find.text('Food'), findsOneWidget);
     expect(find.text('Snacks'), findsOneWidget);
+  });
+
+  testWidgets('SplitsScreen renders friend balances, tabs, and settle actions', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const SplitsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Overall: You get back'), findsOneWidget);
+    expect(find.text('Rahul'), findsOneWidget);
+    expect(find.text('Sneha'), findsOneWidget);
+    expect(find.text('Settle Up'), findsWidgets);
   });
 }

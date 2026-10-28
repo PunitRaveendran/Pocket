@@ -129,10 +129,194 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> setPacingMode(PacingMode mode) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    await _repo.saveSettings(current.settings.copyWith(pacingMode: mode));
+    await _reload();
+  }
+
+  Future<void> addFriendSplit({
+    required String friendName,
+    required int amountPaise,
+    required SplitDirection direction,
+    required LocalDate date,
+    String note = '',
+    bool deductFromDaily = false,
+  }) async {
+    await _repo.addFriendSplit(
+      friendName: friendName,
+      amountPaise: amountPaise,
+      direction: direction,
+      localDate: date,
+      note: note,
+    );
+    if (deductFromDaily && direction == SplitDirection.youAreOwed) {
+      await _repo.addTxn(
+        amountPaise: amountPaise,
+        direction: Direction.debit,
+        localDate: date,
+        merchant: 'Lent to $friendName',
+        categoryId: 'misc',
+        bucket: Bucket.daily,
+        note: note.isNotEmpty ? 'Split: $note' : 'Lent to $friendName',
+      );
+    }
+    await _reload();
+  }
+
+  Future<void> updateFriendSplit(FriendSplit split) async {
+    await _repo.updateFriendSplit(split);
+    await _reload();
+  }
+
+  Future<void> settleFriendSplit(String id, {bool creditDaily = false}) async {
+    await _repo.settleFriendSplit(id, creditDaily: creditDaily);
+    await _reload();
+  }
+
+  Future<void> deleteFriendSplit(String id) async {
+    await _repo.softDeleteFriendSplit(id);
+    await _reload();
+  }
+
+  Future<void> borrowFromTomorrow({
+    required int amountPaise,
+    required LocalDate today,
+  }) async {
+    final tomorrow = today.addDays(1);
+    await _repo.addTxn(
+      amountPaise: amountPaise,
+      direction: Direction.credit,
+      localDate: today,
+      merchant: "Borrowed from tomorrow's allowance",
+      categoryId: 'misc',
+      bucket: Bucket.daily,
+      note: 'Overspend recovery',
+    );
+    await _repo.addTxn(
+      amountPaise: amountPaise,
+      direction: Direction.debit,
+      localDate: tomorrow,
+      merchant: 'Carried forward from yesterday',
+      categoryId: 'misc',
+      bucket: Bucket.daily,
+      note: 'Overspend recovery',
+    );
+    await _reload();
+  }
+
+  Future<void> reclassifyTxnAsOuting(Txn txn, {String outingTitle = 'Overspend Splurge'}) async {
+    final outing = await _repo.addOuting(
+      title: outingTitle,
+      localDate: txn.localDate,
+      note: 'Reclassified from daily (${txn.merchant})',
+    );
+    await _repo.updateTxn(
+      Txn(
+        id: txn.id,
+        amountPaise: txn.amountPaise,
+        direction: txn.direction,
+        occurredAtMs: txn.occurredAtMs,
+        localDate: txn.localDate,
+        merchant: txn.merchant,
+        categoryId: txn.categoryId,
+        bucket: Bucket.outing,
+        outingId: outing.id,
+        note: txn.note,
+      ),
+    );
+    await _reload();
+  }
+
   Future<void> wipe() async {
     await _repo.wipe();
     await _reload();
   }
+}
+
+class WeekView {
+  const WeekView({
+    required this.budget,
+    required this.txns,
+    required this.topCategoryName,
+    required this.topCategoryPaise,
+    required this.cycle,
+  });
+
+  final WeekBudget budget;
+  final List<Txn> txns;
+  final String? topCategoryName;
+  final int topCategoryPaise;
+  final PayCycle cycle;
+}
+
+WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
+  final day = date ?? LocalDate.today();
+  final cycle = PayCycle.containing(day, ledger.settings.cycleStartDay);
+  final dayIndex = cycle.dayIndex(day);
+  final weekIndex = dayIndex ~/ 7;
+  final weekStart = cycle.start.addDays(weekIndex * 7);
+  final candidateEnd = weekStart.addDays(6);
+  final weekEnd = candidateEnd.dateTime.isAfter(cycle.endInclusive.dateTime)
+      ? cycle.endInclusive
+      : candidateEnd;
+
+  final weekTxns = ledger.transactions.where((t) {
+    if (t.bucket != Bucket.daily) return false;
+    final dt = t.localDate.dateTime;
+    return !dt.isBefore(weekStart.dateTime) && !dt.isAfter(weekEnd.dateTime);
+  }).toList();
+
+  var spent = 0;
+  var refunds = 0;
+  final byCat = <String, int>{};
+  for (final t in weekTxns) {
+    if (t.direction == Direction.debit) {
+      spent += t.amountPaise;
+      byCat[t.categoryId] = (byCat[t.categoryId] ?? 0) + t.amountPaise;
+    } else {
+      refunds += t.amountPaise;
+    }
+  }
+
+  String? topName;
+  var topPaise = 0;
+  byCat.forEach((id, v) {
+    if (v > topPaise) {
+      topPaise = v;
+      topName = ledger.categoryById(id)?.name;
+    }
+  });
+
+  const engine = BudgetEngine();
+  var weekAllowance = 0;
+  for (var d = weekStart; !d.dateTime.isAfter(weekEnd.dateTime); d = d.addDays(1)) {
+    weekAllowance += engine.allowanceFor(
+      stipendPaise: ledger.settings.stipendPaise,
+      cycle: cycle,
+      day: d,
+    );
+  }
+
+  final totalWeeks = ((cycle.lengthDays - 1) ~/ 7) + 1;
+  final budget = WeekBudget(
+    startDate: weekStart,
+    endDate: weekEnd,
+    allowancePaise: weekAllowance,
+    spentPaise: spent,
+    refundsPaise: refunds,
+    weekNumber: weekIndex + 1,
+    totalWeeks: totalWeeks,
+  );
+
+  return WeekView(
+    budget: budget,
+    txns: weekTxns,
+    topCategoryName: topName,
+    topCategoryPaise: topPaise,
+    cycle: cycle,
+  );
 }
 
 class TodayView {

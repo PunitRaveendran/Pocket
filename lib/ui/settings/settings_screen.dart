@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../widgets/amount_pad.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/cycle_day_picker.dart';
 import '../widgets/hairline.dart';
 import '../widgets/primary_button.dart';
 
@@ -43,9 +44,30 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
             title: Text(Copy.cycleStart, style: TypeScale.body(t.ink)),
-            subtitle: Text('Day monthly allowance refreshes', style: TypeScale.caption(t.inkSoft)),
-            trailing: Text(_ordinal(s.cycleStartDay), style: TypeScale.body(t.inkSoft)),
+            subtitle: Text('Day monthly allowance refreshes (1–31)', style: TypeScale.caption(t.inkSoft)),
+            trailing: Text(CycleDayPicker.ordinal(s.cycleStartDay), style: TypeScale.body(t.inkSoft)),
             onTap: () => _editDay(context, ref, s),
+          ),
+          const Hairline(indent: Space.margin),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            title: Text('Allowance pacing', style: TypeScale.body(t.ink)),
+            subtitle: Text('Track allowance by day or by 7-day week', style: TypeScale.caption(t.inkSoft)),
+            trailing: DropdownButton<PacingMode>(
+              value: s.pacingMode,
+              underline: const SizedBox.shrink(),
+              dropdownColor: t.card,
+              style: TypeScale.body(t.accent),
+              onChanged: (mode) {
+                if (mode != null) {
+                  ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(pacingMode: mode));
+                }
+              },
+              items: const [
+                DropdownMenuItem(value: PacingMode.daily, child: Text('Daily')),
+                DropdownMenuItem(value: PacingMode.weekly, child: Text('Weekly')),
+              ],
+            ),
           ),
           const Hairline(indent: Space.margin),
           SwitchListTile(
@@ -120,21 +142,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  String _ordinal(int d) {
-    if (d == 1) return '1st';
-    if (d >= 11 && d <= 13) return '${d}th';
-    switch (d % 10) {
-      case 1:
-        return '${d}st';
-      case 2:
-        return '${d}nd';
-      case 3:
-        return '${d}rd';
-      default:
-        return '${d}th';
-    }
-  }
-
   Future<void> _editStipend(BuildContext context, WidgetRef ref, int current) async {
     var value = AmountValue.fromPaise(current);
     await showModalBottomSheet<void>(
@@ -203,20 +210,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _editDay(BuildContext context, WidgetRef ref, Settings settings) async {
-    final t = TokenScope.of(context);
-    final day = await showDialog<int>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text(Copy.cycleStart, style: TypeScale.heading(t.ink)),
-        children: [
-          for (final d in [1, 5, 10, 15, 20, 25])
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, d),
-              child: Text(_ordinal(d), style: TypeScale.body(t.ink)),
-            ),
-        ],
-      ),
-    );
+    final day = await showCycleDayPickerSheet(context, initialDay: settings.cycleStartDay);
     if (day != null) {
       await ref.read(ledgerProvider.notifier).updateSettings(settings.copyWith(cycleStartDay: day));
     }

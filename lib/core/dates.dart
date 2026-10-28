@@ -54,19 +54,31 @@ class PayCycle {
 
   int dayIndex(LocalDate d) => d.dateTime.difference(start.dateTime).inDays;
 
-  /// Cycle from [startDay] (1–28) containing [day].
+  /// Cycle from [startDay] (1–31) containing [day].
+  /// Dynamically clamps to the maximum days of the relevant month.
   static PayCycle containing(LocalDate day, int startDay) {
-    final sd = startDay.clamp(1, 28);
+    final sd = startDay.clamp(1, 31);
+
+    int daysInMonth(int y, int m) => DateTime(y, m + 1, 0).day;
+
+    final thisMonthStartDay = sd.clamp(1, daysInMonth(day.year, day.month));
+
     LocalDate start;
-    if (day.day >= sd) {
-      start = LocalDate(day.year, day.month, sd);
+    if (day.day >= thisMonthStartDay) {
+      start = LocalDate(day.year, day.month, thisMonthStartDay);
     } else {
-      final prev = DateTime(day.year, day.month, 1).subtract(const Duration(days: 1));
-      final dim = DateTime(prev.year, prev.month + 1, 0).day;
-      start = LocalDate(prev.year, prev.month, sd.clamp(1, dim));
+      // Belongs to the cycle that started in the previous calendar month
+      final prevMonthDt = DateTime(day.year, day.month, 1).subtract(const Duration(days: 1));
+      final prevDim = daysInMonth(prevMonthDt.year, prevMonthDt.month);
+      start = LocalDate(prevMonthDt.year, prevMonthDt.month, sd.clamp(1, prevDim));
     }
-    final nextMonth = DateTime(start.year, start.month + 1, start.day);
-    final end = LocalDate.fromDateTime(nextMonth.subtract(const Duration(days: 1)));
+
+    // Next cycle starts in the following calendar month
+    final nextMonthDt = DateTime(start.year, start.month + 1, 1);
+    final nextDim = daysInMonth(nextMonthDt.year, nextMonthDt.month);
+    final nextStart = LocalDate(nextMonthDt.year, nextMonthDt.month, sd.clamp(1, nextDim));
+
+    final end = nextStart.addDays(-1);
     return PayCycle(start: start, endInclusive: end);
   }
 }

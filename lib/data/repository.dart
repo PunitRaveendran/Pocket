@@ -25,6 +25,7 @@ class PocketRepository {
     cycleStartDay: 1,
     hideAmounts: false,
     onboarded: true,
+    pacingMode: PacingMode.daily,
   );
   static final List<Category> _webCategories = List.of(systemCategories);
   static final List<Outing> _webOutings = [
@@ -71,6 +72,28 @@ class PocketRepository {
       note: 'Bus booking',
     ),
   ];
+  static final List<FriendSplit> _webSplits = [
+    FriendSplit(
+      id: 's-1',
+      friendName: 'Rahul',
+      amountPaise: 12000,
+      direction: SplitDirection.youAreOwed,
+      occurredAtMs: DateTime.now().subtract(const Duration(hours: 4)).millisecondsSinceEpoch,
+      localDate: LocalDate.today(),
+      note: 'Biryani split at canteen',
+      isSettled: false,
+    ),
+    FriendSplit(
+      id: 's-2',
+      friendName: 'Sneha',
+      amountPaise: 5000,
+      direction: SplitDirection.youOwe,
+      occurredAtMs: DateTime.now().subtract(const Duration(days: 1)).millisecondsSinceEpoch,
+      localDate: LocalDate.today(),
+      note: 'Xerox & lab manual',
+      isSettled: false,
+    ),
+  ];
 
   Future<Ledger> load() async {
     if (kIsWeb) {
@@ -79,6 +102,7 @@ class PocketRepository {
         categories: List.of(_webCategories),
         transactions: List.of(_webTxns),
         outings: List.of(_webOutings),
+        friendSplits: List.of(_webSplits),
       );
     }
 
@@ -92,6 +116,7 @@ class PocketRepository {
       cycleStartDay: int.parse(map['cycle_start_day'] ?? '${Settings.defaults.cycleStartDay}'),
       hideAmounts: map['hide_amounts'] == '1',
       onboarded: map['onboarded'] == '1',
+      pacingMode: map['pacing_mode'] == 'weekly' ? PacingMode.weekly : PacingMode.daily,
     );
 
     final catRows = await db.query('categories', orderBy: 'sort_order ASC');
@@ -130,11 +155,19 @@ class PocketRepository {
     );
     final txns = txnRows.map(_txnFromRow).toList();
 
+    final splitRows = await db.query(
+      'friend_splits',
+      where: 'deleted_at IS NULL',
+      orderBy: 'occurred_at DESC',
+    );
+    final splits = splitRows.map(_splitFromRow).toList();
+
     return Ledger(
       settings: settings,
       categories: categories,
       transactions: txns,
       outings: outings,
+      friendSplits: splits,
     );
   }
 
@@ -151,6 +184,7 @@ class PocketRepository {
     await put('cycle_start_day', '${s.cycleStartDay}');
     await put('hide_amounts', s.hideAmounts ? '1' : '0');
     await put('onboarded', s.onboarded ? '1' : '0');
+    await put('pacing_mode', s.pacingMode.name);
   }
 
   Future<void> addCategory(String name, {String icon = 'custom'}) async {
@@ -338,6 +372,112 @@ class PocketRepository {
     );
   }
 
+  Future<FriendSplit> addFriendSplit({
+    required String friendName,
+    required int amountPaise,
+    required SplitDirection direction,
+    required LocalDate localDate,
+    String note = '',
+    DateTime? occurredAt,
+  }) async {
+    final split = FriendSplit(
+      id: _uuid.v4(),
+      friendName: friendName.trim(),
+      amountPaise: amountPaise,
+      direction: direction,
+      occurredAtMs: (occurredAt ?? DateTime.now()).millisecondsSinceEpoch,
+      localDate: localDate,
+      note: note.trim(),
+      isSettled: false,
+    );
+
+    if (kIsWeb) {
+      _webSplits.insert(0, split);
+      return split;
+    }
+
+    final db = await _db.db;
+    await db.insert('friend_splits', _splitToRow(split));
+    return split;
+  }
+
+  Future<void> updateFriendSplit(FriendSplit split) async {
+    if (kIsWeb) {
+      final idx = _webSplits.indexWhere((s) => s.id == split.id);
+      if (idx != -1) _webSplits[idx] = split;
+      return;
+    }
+
+    final db = await _db.db;
+    await db.update('friend_splits', _splitToRow(split), where: 'id = ?', whereArgs: [split.id]);
+  }
+
+  Future<void> settleFriendSplit(String id, {bool creditDaily = false}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (kIsWeb) {
+      final idx = _webSplits.indexWhere((s) => s.id == id);
+      if (idx != -1) {
+        final old = _webSplits[idx];
+        _webSplits[idx] = old.copyWith(isSettled: true, settledAtMs: now);
+        if (creditDaily && old.direction == SplitDirection.youAreOwed) {
+          await addTxn(
+            amountPaise: old.amountPaise,
+            direction: Direction.credit,
+            localDate: LocalDate.today(),
+            merchant: '${old.friendName} settled split',
+            categoryId: 'misc',
+            bucket: Bucket.daily,
+            note: 'Settled split: ${old.note.isNotEmpty ? old.note : old.friendName}',
+          );
+        }
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.transaction((txn) async {
+      final rows = await txn.query('friend_splits', where: 'id = ?', whereArgs: [id]);
+      if (rows.isNotEmpty) {
+        final split = _splitFromRow(rows.first);
+        await txn.update(
+          'friend_splits',
+          {'is_settled': 1, 'settled_at': now},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        if (creditDaily && split.direction == SplitDirection.youAreOwed) {
+          final creditTxn = Txn(
+            id: _uuid.v4(),
+            amountPaise: split.amountPaise,
+            direction: Direction.credit,
+            occurredAtMs: now,
+            localDate: LocalDate.today(),
+            merchant: '${split.friendName} settled split',
+            categoryId: 'misc',
+            bucket: Bucket.daily,
+            note: 'Settled split: ${split.note.isNotEmpty ? split.note : split.friendName}',
+          );
+          await txn.insert('txns', _txnToRow(creditTxn));
+        }
+      }
+    });
+  }
+
+  Future<void> softDeleteFriendSplit(String id) async {
+    if (kIsWeb) {
+      _webSplits.removeWhere((s) => s.id == id);
+      return;
+    }
+
+    final db = await _db.db;
+    await db.update(
+      'friend_splits',
+      {'deleted_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> wipe() async {
     if (kIsWeb) {
       _webSettings = Settings.defaults;
@@ -346,6 +486,7 @@ class PocketRepository {
         ..addAll(systemCategories);
       _webOutings.clear();
       _webTxns.clear();
+      _webSplits.clear();
       return;
     }
     await _db.wipe();
@@ -392,5 +533,31 @@ class PocketRepository {
         'bucket': t.bucket == Bucket.outing ? 'outing' : 'daily',
         'outing_id': t.outingId,
         'note': t.note,
+      };
+
+  FriendSplit _splitFromRow(Map<String, Object?> r) {
+    return FriendSplit(
+      id: r['id'] as String,
+      friendName: r['friend_name'] as String,
+      amountPaise: r['amount_paise'] as int,
+      direction: r['direction'] == 'you_owe' ? SplitDirection.youOwe : SplitDirection.youAreOwed,
+      occurredAtMs: r['occurred_at'] as int,
+      localDate: LocalDate.parse(r['local_date'] as String),
+      note: r['note'] as String,
+      isSettled: (r['is_settled'] as int) == 1,
+      settledAtMs: r['settled_at'] as int?,
+    );
+  }
+
+  Map<String, Object?> _splitToRow(FriendSplit s) => {
+        'id': s.id,
+        'friend_name': s.friendName,
+        'amount_paise': s.amountPaise,
+        'direction': s.direction == SplitDirection.youOwe ? 'you_owe' : 'you_are_owed',
+        'occurred_at': s.occurredAtMs,
+        'local_date': s.localDate.ymd,
+        'note': s.note,
+        'is_settled': s.isSettled ? 1 : 0,
+        'settled_at': s.settledAtMs,
       };
 }

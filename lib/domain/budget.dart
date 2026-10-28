@@ -22,6 +22,34 @@ class DayBudget {
   }
 }
 
+class WeekBudget {
+  const WeekBudget({
+    required this.startDate,
+    required this.endDate,
+    required this.allowancePaise,
+    required this.spentPaise,
+    required this.refundsPaise,
+    required this.weekNumber,
+    required this.totalWeeks,
+  });
+
+  final LocalDate startDate;
+  final LocalDate endDate;
+  final int allowancePaise;
+  final int spentPaise;
+  final int refundsPaise;
+  final int weekNumber;
+  final int totalWeeks;
+
+  int get netSpent => spentPaise - refundsPaise;
+  int get remaining => allowancePaise - netSpent;
+  bool get isOver => remaining < 0;
+  double get usedRatio {
+    if (allowancePaise <= 0) return netSpent > 0 ? 2 : 0;
+    return netSpent / allowancePaise;
+  }
+}
+
 class BudgetEngine {
   const BudgetEngine();
 

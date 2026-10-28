@@ -8,6 +8,7 @@ import '../theme/tokens.dart';
 import 'insights/insights_screen.dart';
 import 'outings/outings_screen.dart';
 import 'settings/settings_screen.dart';
+import 'splits/splits_screen.dart';
 import 'today/today_screen.dart';
 import 'widgets/hairline.dart';
 
@@ -21,7 +22,7 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> {
   int _index = 0;
 
-  static const _titles = [Copy.today, Copy.outings, Copy.insights];
+  static const _titles = [Copy.today, 'Splits', Copy.outings, Copy.insights];
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +53,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         index: _index,
         children: const [
           TodayScreen(),
+          SplitsScreen(),
           OutingsScreen(),
           InsightsScreen(),
         ],
@@ -75,6 +77,11 @@ class _AppShellState extends ConsumerState<AppShell> {
                 icon: Icon(Icons.today_outlined, color: t.inkSoft),
                 selectedIcon: Icon(Icons.today_outlined, color: t.accent),
                 label: Copy.today,
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.group_outlined, color: t.inkSoft),
+                selectedIcon: Icon(Icons.group_outlined, color: t.accent),
+                label: 'Splits',
               ),
               NavigationDestination(
                 icon: Icon(Icons.directions_walk_outlined, color: t.inkSoft),
