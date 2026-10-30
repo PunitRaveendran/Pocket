@@ -59,12 +59,27 @@ class BillSplitSheet extends ConsumerStatefulWidget {
   ConsumerState<BillSplitSheet> createState() => _BillSplitSheetState();
 }
 
+class _CustomFriendEntry {
+  final TextEditingController nameController;
+  final TextEditingController amountController;
+
+  _CustomFriendEntry({String name = '', String amountRupees = ''})
+      : nameController = TextEditingController(text: name),
+        amountController = TextEditingController(text: amountRupees);
+
+  void dispose() {
+    nameController.dispose();
+    amountController.dispose();
+  }
+}
+
 class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
   late int _totalPaise;
   late TextEditingController _totalController;
   late TextEditingController _merchantController;
   late TextEditingController _friendsController;
   late TextEditingController _myShareController;
+  final List<_CustomFriendEntry> _customFriends = [];
 
   late String _categoryId;
   late LocalDate _date;
@@ -85,6 +100,7 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
     _date = widget.initialDate ?? LocalDate.today();
 
     _updateMyShareDefault();
+    _syncToCustomFriends();
   }
 
   @override
@@ -93,7 +109,30 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
     _merchantController.dispose();
     _friendsController.dispose();
     _myShareController.dispose();
+    for (final f in _customFriends) {
+      f.dispose();
+    }
     super.dispose();
+  }
+
+  void _syncToCustomFriends() {
+    final currentNames = _parsedFriendNames();
+    final friendCount = max(1, currentNames.isNotEmpty ? currentNames.length : _stepperCount - 1);
+    final totalFriendsPaise = _totalPaise > 0 ? _computeFriendsTotalPaise() : 0;
+    final perFriendRupees = friendCount > 0 ? (totalFriendsPaise ~/ friendCount) ~/ 100 : 0;
+
+    for (final f in _customFriends) {
+      f.dispose();
+    }
+    _customFriends.clear();
+
+    for (var i = 0; i < friendCount; i++) {
+      final name = i < currentNames.length ? currentNames[i] : 'Friend ${i + 1}';
+      _customFriends.add(_CustomFriendEntry(
+        name: name,
+        amountRupees: perFriendRupees > 0 ? '$perFriendRupees' : '',
+      ));
+    }
   }
 
   void _updateMyShareDefault() {
@@ -124,19 +163,56 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
   int _computeMySharePaise() {
     if (_totalPaise <= 0) return 0;
     if (!_isEqualSplit) {
-      final valRupees = int.tryParse(_myShareController.text.trim()) ?? 0;
-      return (valRupees * 100).clamp(0, _totalPaise);
+      if (_myShareController.text.trim().isNotEmpty) {
+        final valRupees = int.tryParse(_myShareController.text.trim()) ?? 0;
+        return (valRupees * 100).clamp(0, _totalPaise);
+      }
+      final friendsSum = _computeFriendsTotalPaise();
+      return max(0, _totalPaise - friendsSum);
     }
     final people = _computePeopleCount();
     return _totalPaise ~/ people;
   }
 
   int _computeFriendsTotalPaise() {
+    if (!_isEqualSplit) {
+      var sum = 0;
+      for (final f in _customFriends) {
+        final r = int.tryParse(f.amountController.text.trim()) ?? 0;
+        sum += r * 100;
+      }
+      return sum;
+    }
     final myShare = _computeMySharePaise();
     return max(0, _totalPaise - myShare);
   }
 
   void _toggleFriendChip(String name) {
+    if (!_isEqualSplit) {
+      final idx = _customFriends.indexWhere(
+        (f) => f.nameController.text.trim().toLowerCase() == name.toLowerCase(),
+      );
+      if (idx != -1) {
+        if (_customFriends.length > 1) {
+          setState(() {
+            final removed = _customFriends.removeAt(idx);
+            removed.dispose();
+          });
+        }
+      } else {
+        final emptyIdx = _customFriends.indexWhere(
+          (f) => f.nameController.text.trim().isEmpty || f.nameController.text.startsWith('Friend '),
+        );
+        setState(() {
+          if (emptyIdx != -1) {
+            _customFriends[emptyIdx].nameController.text = name;
+          } else {
+            _customFriends.add(_CustomFriendEntry(name: name, amountRupees: ''));
+          }
+        });
+      }
+      return;
+    }
     final current = _parsedFriendNames();
     if (current.contains(name)) {
       current.remove(name);
@@ -163,32 +239,57 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
       return;
     }
 
-    final rawNames = _parsedFriendNames();
-    final peopleCount = _computePeopleCount();
-    final friendCount = peopleCount - 1;
-
-    // Build friends list
     final friendsList = <({String friendName, int amountPaise})>[];
-    final friendsTotalPaise = _computeFriendsTotalPaise();
+    int mySharePaise;
+    int friendsTotalPaise;
 
-    if (friendCount <= 0 || friendsTotalPaise <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please specify friends to split with')),
-      );
-      return;
+    if (_isEqualSplit) {
+      final rawNames = _parsedFriendNames();
+      final peopleCount = _computePeopleCount();
+      final friendCount = peopleCount - 1;
+      friendsTotalPaise = _computeFriendsTotalPaise();
+
+      if (friendCount <= 0 || friendsTotalPaise <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please specify friends to split with')),
+        );
+        return;
+      }
+
+      final sharePerFriend = friendsTotalPaise ~/ friendCount;
+      var remainder = friendsTotalPaise % friendCount;
+
+      for (var i = 0; i < friendCount; i++) {
+        final name = i < rawNames.length ? rawNames[i] : 'Friend ${i + 1}';
+        final friendShare = sharePerFriend + (remainder > 0 ? 1 : 0);
+        if (remainder > 0) remainder--;
+        friendsList.add((friendName: name, amountPaise: friendShare));
+      }
+      mySharePaise = _computeMySharePaise();
+    } else {
+      for (var i = 0; i < _customFriends.length; i++) {
+        final entry = _customFriends[i];
+        final name = entry.nameController.text.trim().isNotEmpty
+            ? entry.nameController.text.trim()
+            : 'Friend ${i + 1}';
+        final rupees = int.tryParse(entry.amountController.text.trim()) ?? 0;
+        final paise = rupees * 100;
+        if (paise > 0) {
+          friendsList.add((friendName: name, amountPaise: paise));
+        }
+      }
+
+      if (friendsList.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter an amount for at least one friend')),
+        );
+        return;
+      }
+
+      friendsTotalPaise = friendsList.fold(0, (sum, f) => sum + f.amountPaise);
+      mySharePaise = _computeMySharePaise();
     }
 
-    final sharePerFriend = friendsTotalPaise ~/ friendCount;
-    var remainder = friendsTotalPaise % friendCount;
-
-    for (var i = 0; i < friendCount; i++) {
-      final name = i < rawNames.length ? rawNames[i] : 'Friend ${i + 1}';
-      final friendShare = sharePerFriend + (remainder > 0 ? 1 : 0);
-      if (remainder > 0) remainder--;
-      friendsList.add((friendName: name, amountPaise: friendShare));
-    }
-
-    final mySharePaise = _computeMySharePaise();
     final merchant = _merchantController.text.trim().isNotEmpty
         ? _merchantController.text.trim()
         : 'Bill Split';
@@ -372,7 +473,7 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                                 ),
                                 alignment: Alignment.center,
                                 child: Text(
-                                  'Split Equally (Recommended)',
+                                  'Split Equally',
                                   style: TypeScale.caption(_isEqualSplit ? t.accent : t.inkSoft).copyWith(
                                     fontWeight: _isEqualSplit ? FontWeight.w700 : FontWeight.w500,
                                   ),
@@ -386,9 +487,7 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                               onTap: () {
                                 setState(() {
                                   _isEqualSplit = false;
-                                  if (_myShareController.text.isEmpty && _totalPaise > 0) {
-                                    _myShareController.text = '${(_totalPaise ~/ 100) ~/ 2}';
-                                  }
+                                  _syncToCustomFriends();
                                 });
                               },
                               borderRadius: BorderRadius.circular(Space.controlRadius),
@@ -413,7 +512,7 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                       ),
                       const SizedBox(height: Space.x4),
 
-                      // Equal Split People Stepper
+                      // Equal Split: People Stepper and names
                       if (_isEqualSplit) ...[
                         Row(
                           children: [
@@ -464,53 +563,184 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                           ],
                         ),
                         const SizedBox(height: Space.x3),
-                      ] else ...[
-                        // Custom My Share Field
                         TextField(
-                          controller: _myShareController,
-                          keyboardType: TextInputType.number,
+                          controller: _friendsController,
                           style: TypeScale.body(t.ink),
                           cursorColor: t.accent,
                           decoration: InputDecoration(
-                            labelText: 'Your personal share (₹)',
-                            prefixText: '₹ ',
-                            hintText: '20',
+                            labelText: 'Friend names (comma separated)',
+                            hintText: 'Rahul, Aman, Sneha, Rohan',
+                            prefixIcon: Icon(Icons.people_outline, color: t.inkSoft),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(Space.controlRadius),
                               borderSide: BorderSide(color: t.accent),
                             ),
                           ),
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (val) {
+                            setState(() {
+                              final names = _parsedFriendNames();
+                              if (names.isNotEmpty) {
+                                _stepperCount = max(2, names.length + 1);
+                              }
+                              _updateMyShareDefault();
+                            });
+                          },
                         ),
-                        const SizedBox(height: Space.x3),
-                      ],
-
-                      // Friend Names Input
-                      TextField(
-                        controller: _friendsController,
-                        style: TypeScale.body(t.ink),
-                        cursorColor: t.accent,
-                        decoration: InputDecoration(
-                          labelText: 'Friend names (comma separated)',
-                          hintText: 'Rahul, Aman, Sneha, Rohan',
-                          prefixIcon: Icon(Icons.people_outline, color: t.inkSoft),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
-                          focusedBorder: OutlineInputBorder(
+                      ] else ...[
+                        // Custom Split: Per-Friend Amounts
+                        Row(
+                          children: [
+                            Text(
+                              'HOW MUCH DOES EACH FRIEND OWE?',
+                              style: TypeScale.caption(t.inkSoft).copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                minimumSize: Size.zero,
+                              ),
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('Add Friend', style: TextStyle(fontSize: 12)),
+                              onPressed: () {
+                                setState(() {
+                                  _customFriends.add(_CustomFriendEntry(
+                                    name: 'Friend ${_customFriends.length + 1}',
+                                    amountRupees: '',
+                                  ));
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        for (var i = 0; i < _customFriends.length; i++) ...[
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: t.card,
+                              border: Border.all(color: t.rule),
+                              borderRadius: BorderRadius.circular(Space.controlRadius),
+                            ),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: t.accentTint,
+                                  child: Text(
+                                    _customFriends[i].nameController.text.trim().isNotEmpty
+                                        ? _customFriends[i].nameController.text.trim()[0].toUpperCase()
+                                        : '${i + 1}',
+                                    style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 3,
+                                  child: TextField(
+                                    controller: _customFriends[i].nameController,
+                                    style: TypeScale.body(t.ink).copyWith(fontSize: 14),
+                                    cursorColor: t.accent,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Friend name',
+                                      isDense: true,
+                                      border: InputBorder.none,
+                                    ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                                Container(width: 1, height: 24, color: t.rule),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 2,
+                                  child: TextField(
+                                    controller: _customFriends[i].amountController,
+                                    keyboardType: TextInputType.number,
+                                    style: TypeScale.body(t.ink).copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
+                                    ),
+                                    cursorColor: t.accent,
+                                    decoration: const InputDecoration(
+                                      prefixText: '₹ ',
+                                      hintText: '0',
+                                      isDense: true,
+                                      border: InputBorder.none,
+                                    ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                                if (_customFriends.length > 1)
+                                  IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    icon: Icon(Icons.close, size: 18, color: t.inkSoft),
+                                    onPressed: () {
+                                      setState(() {
+                                        final removed = _customFriends.removeAt(i);
+                                        removed.dispose();
+                                      });
+                                    },
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: Space.x1),
+                        // Your personal share override
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: t.accentTint.withValues(alpha: 0.5),
+                            border: Border.all(color: t.accent.withValues(alpha: 0.3)),
                             borderRadius: BorderRadius.circular(Space.controlRadius),
-                            borderSide: BorderSide(color: t.accent),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.person, size: 18, color: t.accent),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Your Share (charged to Today):',
+                                      style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w600),
+                                    ),
+                                    Text(
+                                      'Total ₹${_totalPaise ~/ 100} - Friends ₹${_computeFriendsTotalPaise() ~/ 100}',
+                                      style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 10),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(
+                                width: 75,
+                                child: TextField(
+                                  controller: _myShareController,
+                                  keyboardType: TextInputType.number,
+                                  textAlign: TextAlign.end,
+                                  style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w800),
+                                  cursorColor: t.accent,
+                                  decoration: InputDecoration(
+                                    prefixText: '₹ ',
+                                    hintText: '${_computeMySharePaise() ~/ 100}',
+                                    isDense: true,
+                                    border: InputBorder.none,
+                                  ),
+                                  onChanged: (_) => setState(() {}),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        onChanged: (val) {
-                          setState(() {
-                            final names = _parsedFriendNames();
-                            if (names.isNotEmpty) {
-                              _stepperCount = max(2, names.length + 1);
-                            }
-                            _updateMyShareDefault();
-                          });
-                        },
-                      ),
+                      ],
 
                       // Quick friend chips
                       if (pastFriends.isNotEmpty) ...[
@@ -593,13 +823,17 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Friends’ Debt ($friendCount friend${friendCount > 1 ? "s" : ""})',
+                                        _isEqualSplit
+                                            ? 'Friends’ Debt ($friendCount friend${friendCount > 1 ? "s" : ""})'
+                                            : 'Friends’ Debt (${_customFriends.length} friend${_customFriends.length > 1 ? "s" : ""})',
                                         style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w700),
                                       ),
                                       Text(
-                                        friendCount > 0
-                                            ? '${Money.formatPaise(perFriendPaise)} each · Tracked in Splits'
-                                            : 'Tracked in Splits section',
+                                        _isEqualSplit
+                                            ? (friendCount > 0
+                                                ? '${Money.formatPaise(perFriendPaise)} each · Tracked in Splits'
+                                                : 'Tracked in Splits section')
+                                            : 'Custom amounts · Tracked in Splits',
                                         style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
                                       ),
                                     ],

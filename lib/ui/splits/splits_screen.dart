@@ -23,8 +23,38 @@ class SplitsScreen extends ConsumerStatefulWidget {
   ConsumerState<SplitsScreen> createState() => _SplitsScreenState();
 }
 
+class _FriendGroup {
+  final String friendName;
+  final List<FriendSplit> splits;
+
+  _FriendGroup({required this.friendName, required this.splits});
+
+  int get netPaise {
+    var net = 0;
+    for (final s in splits) {
+      if (s.isSettled) continue;
+      if (s.direction == SplitDirection.youAreOwed) {
+        net += s.amountPaise;
+      } else {
+        net -= s.amountPaise;
+      }
+    }
+    return net;
+  }
+
+  int get totalSettledPaise {
+    return splits
+        .where((s) => s.isSettled)
+        .fold(0, (sum, s) => sum + s.amountPaise);
+  }
+
+  int get activeCount => splits.where((s) => !s.isSettled).length;
+}
+
 class _SplitsScreenState extends ConsumerState<SplitsScreen> {
   SplitFilter _filter = SplitFilter.all;
+  bool _groupByFriend = true;
+  final Set<String> _expandedFriends = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -156,11 +186,17 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
                       ),
                       const SizedBox(height: Space.x4),
 
-                      // Filter chips
+                      // Filter chips & View Toggle
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
+                            LedgerChip(
+                              label: _groupByFriend ? 'Grouped by Friend' : 'All Items',
+                              selected: _groupByFriend,
+                              onTap: () => setState(() => _groupByFriend = !_groupByFriend),
+                            ),
+                            const SizedBox(width: Space.x2),
                             LedgerChip(
                               label: 'Active (${splits.where((s) => !s.isSettled).length})',
                               selected: _filter == SplitFilter.all,
@@ -220,6 +256,18 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
                       ),
                     ),
                   ),
+                )
+              else if (_groupByFriend)
+                Builder(
+                  builder: (context) {
+                    final groups = _computeGroups(filtered);
+                    return SliverList.builder(
+                      itemCount: groups.length,
+                      itemBuilder: (context, index) {
+                        return _buildGroupedFriendCard(context, t, groups[index], hide);
+                      },
+                    );
+                  },
                 )
               else
                 SliverList.separated(
@@ -365,6 +413,412 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
         );
       },
     );
+  }
+
+  List<_FriendGroup> _computeGroups(List<FriendSplit> items) {
+    final Map<String, ({String displayName, List<FriendSplit> splits})> groupedMap = {};
+    for (final s in items) {
+      final normKey = s.friendName.trim().toLowerCase();
+      if (normKey.isEmpty) continue;
+      if (!groupedMap.containsKey(normKey)) {
+        groupedMap[normKey] = (displayName: s.friendName.trim(), splits: [s]);
+      } else {
+        groupedMap[normKey]!.splits.add(s);
+      }
+    }
+    return groupedMap.values
+        .map((e) => _FriendGroup(friendName: e.displayName, splits: e.splits))
+        .toList();
+  }
+
+  Widget _buildGroupedFriendCard(
+    BuildContext context,
+    PaperTokens t,
+    _FriendGroup group,
+    bool hide,
+  ) {
+    final isExpanded = _expandedFriends.contains(group.friendName);
+    final isSettledTab = _filter == SplitFilter.settled;
+    final isOwed = group.netPaise > 0;
+    final isOwing = group.netPaise < 0;
+    final displayAmount = isSettledTab ? group.totalSettledPaise : group.netPaise.abs();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: Space.margin, vertical: 4),
+      decoration: BoxDecoration(
+        color: t.card,
+        border: Border.all(color: t.rule),
+        borderRadius: BorderRadius.circular(Space.cardRadius),
+      ),
+      child: Column(
+        children: [
+          // Friend Card Header
+          InkWell(
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedFriends.remove(group.friendName);
+                } else {
+                  _expandedFriends.add(group.friendName);
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(Space.cardRadius),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: isSettledTab
+                        ? t.rule
+                        : isOwed
+                            ? t.accentTint
+                            : t.paper,
+                    child: Text(
+                      group.friendName.isNotEmpty ? group.friendName[0].toUpperCase() : '?',
+                      style: TypeScale.body(
+                        isSettledTab
+                            ? t.inkSoft
+                            : isOwed
+                                ? t.accent
+                                : t.ink,
+                      ).copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          group.friendName,
+                          style: TypeScale.body(t.ink).copyWith(
+                            fontWeight: FontWeight.w700,
+                            decoration: isSettledTab ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          group.splits.length > 1
+                              ? '${group.splits.length} splits · ${group.activeCount} active'
+                              : (group.splits.first.note.isNotEmpty
+                                  ? group.splits.first.note
+                                  : (isSettledTab ? 'Settled' : (isOwed ? 'Owes you' : 'You owe'))),
+                          style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        Money.formatPaise(displayAmount, hide: hide),
+                        style: TypeScale.money(
+                          isSettledTab
+                              ? t.inkSoft
+                              : isOwed
+                                  ? t.accent
+                                  : t.ink,
+                          size: 16,
+                        ),
+                      ),
+                      Text(
+                        isSettledTab
+                            ? 'Settled'
+                            : isOwed
+                                ? 'Owes you'
+                                : isOwing
+                                    ? 'You owe'
+                                    : 'Balanced',
+                        style: TypeScale.caption(
+                          isSettledTab
+                              ? t.inkSoft
+                              : isOwed
+                                  ? t.accent
+                                  : t.inkSoft,
+                        ).copyWith(fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: t.inkSoft,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // If not expanded and has 1 split, show quick Settle Up row
+          if (!isExpanded && group.activeCount == 1) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Row(
+                children: [
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      minimumSize: Size.zero,
+                      side: BorderSide(color: t.accent),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                    ),
+                    onPressed: () => _confirmSettle(
+                      context,
+                      group.splits.firstWhere((s) => !s.isSettled),
+                    ),
+                    child: Text('Settle Up', style: TypeScale.caption(t.accent)),
+                  ),
+                  const Spacer(),
+                  PopupMenuButton<String>(
+                    icon: Icon(Icons.more_vert, size: 18, color: t.inkSoft),
+                    color: t.card,
+                    onSelected: (val) {
+                      final split = group.splits.first;
+                      if (val == 'edit') {
+                        showSplitSheet(context, editing: split);
+                      } else if (val == 'delete') {
+                        _confirmDelete(context, split);
+                      }
+                    },
+                    itemBuilder: (ctx) => [
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: Text('Edit', style: TypeScale.body(t.ink)),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete', style: TypeScale.body(t.over)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // If not expanded and has > 1 active splits, show quick "Settle All" row
+          if (!isExpanded && group.activeCount > 1) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Row(
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      minimumSize: Size.zero,
+                      side: BorderSide(color: t.accent),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                    ),
+                    icon: const Icon(Icons.done_all, size: 14),
+                    onPressed: () => _confirmSettleMultiple(
+                      context,
+                      group.friendName,
+                      group.splits.where((s) => !s.isSettled).toList(),
+                    ),
+                    label: Text(
+                      'Settle All (${Money.formatPaise(group.netPaise.abs(), hide: hide)})',
+                      style: TypeScale.caption(t.accent),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      minimumSize: Size.zero,
+                    ),
+                    onPressed: () => setState(() => _expandedFriends.add(group.friendName)),
+                    child: Text('View Details', style: TypeScale.caption(t.inkSoft)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Expanded splits breakdown
+          if (isExpanded) ...[
+            const Hairline(),
+            for (final split in group.splits) ...[
+              ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                leading: Icon(
+                  split.direction == SplitDirection.youAreOwed
+                      ? Icons.arrow_downward
+                      : Icons.arrow_upward,
+                  size: 16,
+                  color: split.isSettled
+                      ? t.inkSoft
+                      : (split.direction == SplitDirection.youAreOwed ? t.accent : t.ink),
+                ),
+                title: Text(
+                  split.note.isNotEmpty ? split.note : 'Split',
+                  style: TypeScale.caption(t.ink).copyWith(
+                    fontWeight: FontWeight.w600,
+                    decoration: split.isSettled ? TextDecoration.lineThrough : null,
+                  ),
+                ),
+                subtitle: Text(
+                  '${DateFormat('d MMM').format(split.localDate.dateTime)} · ${split.isSettled ? "Settled" : (split.direction == SplitDirection.youAreOwed ? "Owes you" : "You owe")}',
+                  style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      Money.formatPaise(split.amountPaise, hide: hide),
+                      style: TypeScale.caption(
+                        split.isSettled
+                            ? t.inkSoft
+                            : (split.direction == SplitDirection.youAreOwed ? t.accent : t.ink),
+                      ).copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    if (!split.isSettled) ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          minimumSize: Size.zero,
+                          side: BorderSide(color: t.accent),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                          ),
+                        ),
+                        onPressed: () => _confirmSettle(context, split),
+                        child: Text('Settle Up', style: TypeScale.caption(t.accent).copyWith(fontSize: 11)),
+                      ),
+                    ],
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert, size: 16, color: t.inkSoft),
+                      color: t.card,
+                      onSelected: (val) {
+                        if (val == 'edit') {
+                          showSplitSheet(context, editing: split);
+                        } else if (val == 'delete') {
+                          _confirmDelete(context, split);
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Text('Edit', style: TypeScale.body(t.ink)),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Delete', style: TypeScale.body(t.over)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Hairline(indent: 14),
+            ],
+            if (group.activeCount > 1) ...[
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      side: BorderSide(color: t.accent),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                    ),
+                    icon: const Icon(Icons.done_all, size: 16),
+                    onPressed: () => _confirmSettleMultiple(
+                      context,
+                      group.friendName,
+                      group.splits.where((s) => !s.isSettled).toList(),
+                    ),
+                    label: Text(
+                      'Settle All with ${group.friendName} (${Money.formatPaise(group.netPaise.abs(), hide: hide)})',
+                      style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmSettleMultiple(
+    BuildContext context,
+    String friendName,
+    List<FriendSplit> activeSplits,
+  ) async {
+    final t = TokenScope.of(context);
+    final totalPaise = activeSplits.fold(0, (sum, s) => sum + s.amountPaise);
+    var creditToToday = false;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Text('Settle all with $friendName?', style: TypeScale.heading(t.ink)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Mark ${activeSplits.length} splits totaling ${Money.formatPaise(totalPaise)} as settled.',
+                style: TypeScale.body(t.ink),
+              ),
+              const SizedBox(height: Space.x4),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: creditToToday,
+                activeColor: t.accent,
+                title: Text(
+                  'Also add to today’s spending allowance',
+                  style: TypeScale.caption(t.ink),
+                ),
+                subtitle: Text(
+                  'Leave unchecked to clear the splits without inflating your daily balance.',
+                  style: TypeScale.caption(t.inkSoft),
+                ),
+                onChanged: (v) => setDlgState(() => creditToToday = v ?? false),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Confirm Settle All', style: TypeScale.body(t.accent)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (ok == true) {
+      for (final s in activeSplits) {
+        await ref.read(ledgerProvider.notifier).settleFriendSplit(
+              s.id,
+              creditDaily: creditToToday,
+            );
+      }
+      HapticFeedback.mediumImpact();
+    }
   }
 
   Future<void> _confirmSettle(BuildContext context, FriendSplit split) async {

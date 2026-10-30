@@ -321,10 +321,10 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: Space.x4),
-                    // Student cycle pace micro-banner
+                    const SizedBox(height: Space.x3),
+                    // Student cycle pace compact banner with integrated receipt action
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                       decoration: BoxDecoration(
                         border: Border.all(color: t.rule),
                         borderRadius: BorderRadius.circular(Space.controlRadius),
@@ -332,23 +332,53 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.calendar_month_outlined, size: 16, color: t.inkSoft),
+                          Icon(Icons.calendar_month_outlined, size: 15, color: t.inkSoft),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               isWeekly && weekBudget != null
-                                  ? 'Week ${weekBudget.weekNumber} of ${weekBudget.totalWeeks} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)}) · Allowance: ₹${allowancePaise ~/ 100}/wk'
-                                  : 'Day $dayNumberInCycle of ${cycle.lengthDays} · Allowance: ₹${allowancePaise ~/ 100}/day',
-                              style: TypeScale.caption(t.inkSoft),
+                                  ? (daysRemainingInCycle <= 3
+                                      ? 'Week ${weekBudget.weekNumber}/${weekBudget.totalWeeks} · ₹${allowancePaise ~/ 100}/wk'
+                                      : 'Week ${weekBudget.weekNumber} of ${weekBudget.totalWeeks} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)}) · ₹${allowancePaise ~/ 100}/wk')
+                                  : (daysRemainingInCycle <= 3
+                                      ? 'Day $dayNumberInCycle/${cycle.lengthDays} · ₹${allowancePaise ~/ 100}/day'
+                                      : 'Day $dayNumberInCycle of ${cycle.lengthDays} · Allowance: ₹${allowancePaise ~/ 100}/day'),
+                              style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
+                          if (daysRemainingInCycle <= 3) ...[
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () => showMonthEndReceipt(context, ledger),
+                              borderRadius: BorderRadius.circular(4),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.receipt_long_outlined, size: 14, color: t.accent),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Receipt',
+                                      style: TypeScale.caption(t.accent).copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    Icon(Icons.chevron_right, size: 14, color: t.accent),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                     if (isCrunchMode) ...[
-                      const SizedBox(height: Space.x3),
+                      const SizedBox(height: Space.x2),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           color: t.card,
                           border: Border.all(color: t.over.withValues(alpha: 0.6)),
@@ -379,9 +409,9 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       ),
                     ],
                     if (piggyPaise > 0) ...[
-                      const SizedBox(height: Space.x3),
+                      const SizedBox(height: Space.x2),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                         decoration: BoxDecoration(
                           color: t.card,
                           border: Border.all(color: t.rule),
@@ -401,35 +431,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ),
                       ),
                     ],
-                    if (daysRemainingInCycle <= 3) ...[
-                      const SizedBox(height: Space.x3),
-                      InkWell(
-                        onTap: () => showMonthEndReceipt(context, ledger),
-                        borderRadius: BorderRadius.circular(Space.controlRadius),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: t.card,
-                            border: Border.all(color: t.rule),
-                            borderRadius: BorderRadius.circular(Space.controlRadius),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.receipt_long_outlined, size: 16, color: t.inkSoft),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Cycle wrapping up · Tap for Month-End Paper Receipt',
-                                  style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                              Icon(Icons.chevron_right, size: 16, color: t.inkSoft),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: Space.x6),
+                    const SizedBox(height: Space.x3),
                     PrimaryButton(
                       label: Copy.addSpend,
                       onPressed: () => showSpendSheet(

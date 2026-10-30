@@ -278,5 +278,59 @@ void main() {
       expect(todayView.budget.spentPaise, 2000); // Only ₹20 deducted from allowance!
       expect(todayView.budget.netSpent, 2000);
     });
+
+    test('splitBill supports custom per-friend share amounts and groups friend splits', () async {
+      final repo = PocketRepository(PocketDatabase.instance, inMemory: true);
+      await repo.wipe();
+      final today = LocalDate.today();
+
+      // Bill 1: ₹100 split where Rahul owes ₹30, Aman owes ₹50, User personal share is ₹20
+      await repo.splitBill(
+        totalAmountPaise: 10000, // ₹100 total
+        mySharePaise: 2000,      // ₹20 user share
+        friends: [
+          (friendName: 'Rahul', amountPaise: 3000), // ₹30
+          (friendName: 'Aman', amountPaise: 5000),  // ₹50
+        ],
+        date: today,
+        categoryId: 'food',
+        merchant: 'Hostel Night Canteen',
+      );
+
+      // Bill 2: Another bill where Rahul owes ₹25
+      await repo.splitBill(
+        totalAmountPaise: 5000,  // ₹50 total
+        mySharePaise: 2500,      // ₹25 user share
+        friends: [
+          (friendName: 'Rahul', amountPaise: 2500), // ₹25
+        ],
+        date: today,
+        categoryId: 'food',
+        merchant: 'Chai & Snacks',
+      );
+
+      final ledger = await repo.load();
+
+      // User has 2 transactions: ₹20 + ₹25 = ₹45 total
+      expect(ledger.transactions.length, 2);
+      expect(ledger.transactions.fold<int>(0, (sum, t) => sum + t.amountPaise), 4500);
+
+      // Total owed in Splits:
+      // Rahul owes: ₹30 + ₹25 = ₹55
+      // Aman owes: ₹50
+      // Total = ₹105
+      expect(ledger.friendSplits.length, 3);
+      expect(ledger.totalOwedToMePaise, 10500);
+
+      // Verify grouped friend math: Rahul has 2 splits totaling ₹55
+      final rahulSplits = ledger.friendSplits.where((s) => s.friendName == 'Rahul').toList();
+      expect(rahulSplits.length, 2);
+      expect(rahulSplits.fold<int>(0, (sum, s) => sum + s.amountPaise), 5500);
+
+      // Aman has 1 split for ₹50
+      final amanSplits = ledger.friendSplits.where((s) => s.friendName == 'Aman').toList();
+      expect(amanSplits.length, 1);
+      expect(amanSplits.first.amountPaise, 5000);
+    });
   });
 }
