@@ -149,8 +149,6 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (ledger.pendingInbox.isNotEmpty)
-                      _buildPendingInboxBanner(context, t, ledger.pendingInbox),
                     // Mode Switcher (Daily / Weekly) and Date Navigation Bar
                     Row(
                       children: [
@@ -479,7 +477,11 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: Space.x4),
+                    if (ledger.pendingInbox.isNotEmpty) ...[
+                      const SizedBox(height: Space.x4),
+                      _buildPendingInboxBanner(context, t, ledger.pendingInbox),
+                    ],
+                    const SizedBox(height: Space.x3),
                   ],
                 ),
               ),
@@ -616,73 +618,71 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
     List<PendingTransaction> items,
   ) {
     final first = items.first;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Space.x4),
-      child: InkWell(
-        onTap: () => showPendingInboxSheet(context),
-        borderRadius: BorderRadius.circular(Space.controlRadius),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: t.accentTint,
-            borderRadius: BorderRadius.circular(Space.controlRadius),
-            border: Border.all(color: t.accent.withValues(alpha: 0.4)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: t.accent,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.mail_rounded, size: 16, color: Colors.white),
+    return InkWell(
+      onTap: () => showPendingInboxSheet(context),
+      borderRadius: BorderRadius.circular(Space.cardRadius),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: t.card,
+          borderRadius: BorderRadius.circular(Space.cardRadius),
+          border: Border.all(color: t.accent.withValues(alpha: 0.5), width: 1.2),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: t.accentTint,
+                shape: BoxShape.circle,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          '${items.length} Slice Transaction${items.length > 1 ? 's' : ''}',
-                          style: TypeScale.caption(t.accent).copyWith(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
+              child: Icon(Icons.bolt_rounded, size: 18, color: t.accent),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        '${items.length} Slice Transaction${items.length > 1 ? 's' : ''}',
+                        style: TypeScale.caption(t.ink).copyWith(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: t.accent,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'REVIEW',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                          decoration: BoxDecoration(
-                            color: t.card,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'NEW',
-                            style: TypeScale.caption(t.accent).copyWith(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${first.merchant} · ${Money.formatPaise(first.amountPaise)} · Tap to review',
-                      style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${first.merchant} · ${Money.formatPaise(first.amountPaise)} · Tap to review',
+                    style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Icon(Icons.arrow_forward_ios_rounded, size: 14, color: t.accent),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.arrow_forward_ios_rounded, size: 12, color: t.inkSoft),
+          ],
         ),
       ),
     );

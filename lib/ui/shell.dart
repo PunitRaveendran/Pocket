@@ -9,6 +9,7 @@ import '../theme/tokens.dart';
 import 'insights/insights_screen.dart';
 import 'outings/outings_screen.dart';
 import 'settings/settings_screen.dart';
+import 'sheets/pending_inbox_sheet.dart';
 import 'splits/splits_screen.dart';
 import 'today/today_screen.dart';
 import 'widgets/hairline.dart';
@@ -70,11 +71,25 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     final t = TokenScope.of(context);
+    final ledger = ref.watch(ledgerProvider).valueOrNull;
+    final pendingCount = ledger?.pendingInbox.length ?? 0;
+
     return Scaffold(
       backgroundColor: t.paper,
       appBar: AppBar(
         title: Text(_titles[_index]),
         actions: [
+          if (pendingCount > 0)
+            IconButton(
+              tooltip: '$pendingCount pending Slice transaction${pendingCount > 1 ? "s" : ""}',
+              onPressed: () => showPendingInboxSheet(context),
+              icon: Badge(
+                label: Text('$pendingCount'),
+                backgroundColor: t.accent,
+                textColor: Colors.white,
+                child: Icon(Icons.bolt_rounded, color: t.accent, size: 22),
+              ),
+            ),
           IconButton(
             tooltip: Copy.settings,
             onPressed: () {
