@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/copy.dart';
+import '../state/ledger.dart';
 import '../theme/app_theme.dart';
 import '../theme/tokens.dart';
 import 'insights/insights_screen.dart';
@@ -18,10 +19,52 @@ class AppShell extends ConsumerStatefulWidget {
   ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends ConsumerState<AppShell> {
+class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver {
   int _index = 0;
+  DateTime? _lastSyncAttempt;
 
   static const _titles = [Copy.today, Copy.outings, Copy.insights];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAutoSync(force: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAutoSync();
+    }
+  }
+
+  void _checkAutoSync({bool force = false}) {
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    if (ledger == null) return;
+    final s = ledger.settings;
+    if (!s.emailSyncEnabled ||
+        s.emailSyncAddress.trim().isEmpty ||
+        s.emailSyncAppPassword.trim().isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now();
+    // Throttle auto-sync to once every 45 seconds when returning from background
+    if (!force && _lastSyncAttempt != null && now.difference(_lastSyncAttempt!).inSeconds < 45) {
+      return;
+    }
+    _lastSyncAttempt = now;
+    ref.read(ledgerProvider.notifier).syncSliceEmails();
+  }
 
   @override
   Widget build(BuildContext context) {

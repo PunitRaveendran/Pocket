@@ -125,4 +125,99 @@ void main() {
     // The daily view should only reflect ordinary transactions (6000), not the outing (45000)
     expect(todayView.budget.spentPaise, 6000);
   });
+
+  test('pay cycle clamps 31st to end-of-month properly across different months', () {
+    // Oct has 31 days. Start day 31.
+    final cycleOct = PayCycle.containing(const LocalDate(2026, 10, 31), 31);
+    expect(cycleOct.start, const LocalDate(2026, 10, 31));
+    // Next month is Nov, which has 30 days -> next cycle starts Nov 30 -> Oct cycle ends Nov 29.
+    expect(cycleOct.endInclusive, const LocalDate(2026, 11, 29));
+
+    // Mid-month cycle: 15th
+    final cycleMid = PayCycle.containing(const LocalDate(2026, 10, 20), 15);
+    expect(cycleMid.start, const LocalDate(2026, 10, 15));
+    expect(cycleMid.endInclusive, const LocalDate(2026, 11, 14));
+  });
+
+  test('weekly budget sums daily slices accurately across cycle', () {
+    final ledger = Ledger(
+      settings: const Settings(
+        stipendPaise: 310000, // 3,100 Rs = 100 Rs/day on 31-day month
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+        pacingMode: PacingMode.weekly,
+      ),
+      categories: const [
+        Category(id: 'food', name: 'Food', icon: 'food', isSystem: true, sortOrder: 0),
+      ],
+      transactions: [
+        Txn(
+          id: '1',
+          amountPaise: 15000, // 150 Rs
+          direction: Direction.debit,
+          occurredAtMs: 1000,
+          localDate: const LocalDate(2026, 10, 3),
+          merchant: 'Lunch',
+          categoryId: 'food',
+          bucket: Bucket.daily,
+          note: '',
+        ),
+      ],
+      outings: const [],
+    );
+
+    final weekView = buildCurrentWeek(ledger, date: const LocalDate(2026, 10, 3));
+    // Week 1 of Oct 2026 spans Thu Oct 1 to Sun Oct 4 (4 days) = 40000 paise allowance (₹400)
+    expect(weekView.budget.weekNumber, 1);
+    expect(weekView.budget.startDate, const LocalDate(2026, 10, 1));
+    expect(weekView.budget.endDate, const LocalDate(2026, 10, 4));
+    expect(weekView.budget.allowancePaise, 40000);
+    expect(weekView.budget.spentPaise, 15000);
+    expect(weekView.budget.remaining, 25000);
+    expect(weekView.budget.isOver, isFalse);
+  });
+
+  test('friend split net balances calculate correctly for owed and owing', () {
+    final ledger = Ledger(
+      settings: Settings.defaults,
+      categories: const [],
+      transactions: const [],
+      outings: const [],
+      friendSplits: [
+        // Rahul owes me ₹120 (active)
+        const FriendSplit(
+          id: '1',
+          friendName: 'Rahul',
+          amountPaise: 12000,
+          direction: SplitDirection.youAreOwed,
+          occurredAtMs: 1000,
+          localDate: LocalDate(2026, 10, 1),
+        ),
+        // I owe Sneha ₹50 (active)
+        const FriendSplit(
+          id: '2',
+          friendName: 'Sneha',
+          amountPaise: 5000,
+          direction: SplitDirection.youOwe,
+          occurredAtMs: 2000,
+          localDate: LocalDate(2026, 10, 2),
+        ),
+        // Aman already settled ₹80 (settled, should not affect active balance)
+        const FriendSplit(
+          id: '3',
+          friendName: 'Aman',
+          amountPaise: 8000,
+          direction: SplitDirection.youAreOwed,
+          occurredAtMs: 3000,
+          localDate: LocalDate(2026, 10, 2),
+          isSettled: true,
+        ),
+      ],
+    );
+
+    expect(ledger.totalOwedToMePaise, 12000); // Only Rahul
+    expect(ledger.totalIOwePaise, 5000); // Sneha
+    expect(ledger.netFriendBalancePaise, 7000); // Overall get back ₹70
+  });
 }

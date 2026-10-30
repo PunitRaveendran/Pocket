@@ -23,6 +23,9 @@ IconData categoryIcon(String key) {
       return Icons.medical_services_outlined;
     case 'tech':
       return Icons.devices_outlined;
+    case 'income':
+    case 'savings':
+      return Icons.savings_outlined;
     default:
       return Icons.label_outline;
   }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pocket</string>
+    <string name="quick_spend_title">Quick Spend</string>
+    <string name="quick_spend_long">Quick Add Spend</string>
+</resources>

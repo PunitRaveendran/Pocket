@@ -11,6 +11,8 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+*.tar.gz
+android-studio-rabbit2-linux.tar.gz
 
 # IntelliJ related
 *.iml
@@ -46,3 +48,8 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Archives & binaries
+*.tar.gz
+*.zip
+*.apk

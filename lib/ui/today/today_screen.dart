@@ -5,10 +5,14 @@ import 'package:intl/intl.dart';
 import '../../core/dates.dart';
 import '../../core/money.dart';
 import '../../data/models.dart';
+import '../../domain/budget.dart';
 import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
+import '../sheets/overspend_sheet.dart';
+import '../sheets/pending_inbox_sheet.dart';
+import '../sheets/receipt_sheet.dart';
 import '../sheets/spend_sheet.dart';
 import '../widgets/allowance_meter.dart';
 import '../widgets/category_icon.dart';
@@ -39,30 +43,73 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Center(child: Text('$e')),
       data: (ledger) {
-        final view = buildToday(ledger, date: _selectedDate);
+        final isWeekly = ledger.settings.pacingMode == PacingMode.weekly;
         final hide = ledger.settings.hideAmounts;
-        final remaining = view.budget.remaining;
+
+        final int remaining;
+        final int allowancePaise;
+        final double usedRatio;
+        final String label;
+        final String caption;
+        final String? topCategoryName;
+        final int topCategoryPaise;
+        final PayCycle cycle;
+        final List<Txn> dayTxns;
+        final WeekBudget? weekBudget;
+
+        if (isWeekly) {
+          final weekView = buildCurrentWeek(ledger, date: _selectedDate);
+          weekBudget = weekView.budget;
+          dayTxns = weekView.txns;
+          remaining = weekBudget.remaining;
+          allowancePaise = weekBudget.allowancePaise;
+          usedRatio = weekBudget.usedRatio;
+          topCategoryName = weekView.topCategoryName;
+          topCategoryPaise = weekView.topCategoryPaise;
+          cycle = weekView.cycle;
+          label = remaining < 0
+              ? 'over this week'
+              : remaining == 0
+                  ? 'this week is even'
+                  : 'left this week';
+          caption = remaining < 0
+              ? Copy.overBy(Money.formatPaise(remaining.abs(), hide: hide))
+              : Copy.leftOf(
+                  Money.formatPaise(remaining, hide: hide),
+                  Money.formatPaise(allowancePaise, hide: hide),
+                );
+        } else {
+          final view = buildToday(ledger, date: _selectedDate);
+          weekBudget = null;
+          dayTxns = view.txns;
+          remaining = view.budget.remaining;
+          allowancePaise = view.budget.allowancePaise;
+          usedRatio = view.budget.usedRatio;
+          topCategoryName = view.topCategoryName;
+          topCategoryPaise = view.topCategoryPaise;
+          cycle = view.cycle;
+          label = remaining < 0
+              ? Copy.overToday
+              : remaining == 0
+                  ? Copy.evenToday
+                  : Copy.leftToday;
+          caption = remaining < 0
+              ? Copy.overBy(Money.formatPaise(remaining.abs(), hide: hide))
+              : Copy.leftOf(
+                  Money.formatPaise(remaining, hide: hide),
+                  Money.formatPaise(allowancePaise, hide: hide),
+                );
+        }
+
         final figureColor = remaining < 0 ? t.over : t.ink;
         final figure = Money.formatPaise(remaining.abs(), hide: hide);
-        final label = remaining < 0
-            ? Copy.overToday
-            : remaining == 0
-                ? Copy.evenToday
-                : Copy.leftToday;
-        final caption = remaining < 0
-            ? Copy.overBy(Money.formatPaise(remaining.abs(), hide: hide))
-            : Copy.leftOf(
-                Money.formatPaise(remaining, hide: hide),
-                Money.formatPaise(view.budget.allowancePaise, hide: hide),
-              );
 
-        // Filter transactions for this day
-        final dayTxns = view.txns;
+        // Filter transactions for this day or week
         final filtered = _filter == null
             ? dayTxns
             : dayTxns.where((x) => x.categoryId == _filter).toList();
 
-        // Calculate category totals for today
+        // Calculate category totals
         final catSpentMap = <String, int>{};
         var totalSpentToday = 0;
         for (final txn in dayTxns) {
@@ -75,62 +122,142 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
           }
         }
 
-        final cycle = view.cycle;
         final dayNumberInCycle = _selectedDate.dateTime.difference(cycle.start.dateTime).inDays + 1;
+        final daysRemainingInCycle = cycle.endInclusive.dateTime.difference(_selectedDate.dateTime).inDays + 1;
+        final pacePaise = safeDailyPace(ledger, cycle, _selectedDate);
+        final isCrunchMode = daysRemainingInCycle >= 3 && daysRemainingInCycle <= 14 && pacePaise > 0 && pacePaise < 4000;
+        final piggyPaise = ledger.settings.leftoverPolicy == LeftoverPolicy.outingsPiggyBank
+            ? outingsPiggyBank(ledger, cycle, _selectedDate)
+            : 0;
 
-        return CustomScrollView(
-          slivers: [
+        return RefreshIndicator(
+          color: t.accent,
+          backgroundColor: t.card,
+          onRefresh: () async {
+            if (ledger.settings.emailSyncEnabled &&
+                ledger.settings.emailSyncAddress.trim().isNotEmpty &&
+                ledger.settings.emailSyncAppPassword.trim().isNotEmpty) {
+              await ref.read(ledgerProvider.notifier).syncSliceEmails(force: true);
+            }
+          },
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(Space.margin, Space.x4, Space.margin, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Date Navigation Bar
+                    if (ledger.pendingInbox.isNotEmpty)
+                      _buildPendingInboxBanner(context, t, ledger.pendingInbox),
+                    // Mode Switcher (Daily / Weekly) and Date Navigation Bar
                     Row(
                       children: [
                         IconButton(
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           icon: Icon(Icons.chevron_left, color: t.inkSoft, size: 24),
-                          tooltip: 'Previous day',
+                          tooltip: isWeekly ? 'Previous week' : 'Previous day',
                           onPressed: () {
-                            setState(() => _selectedDate = _selectedDate.addDays(-1));
+                            if (isWeekly && weekBudget != null) {
+                              setState(() => _selectedDate = weekBudget!.startDate.addDays(-1));
+                            } else {
+                              setState(() => _selectedDate = _selectedDate.addDays(-1));
+                            }
                           },
                         ),
-                        const SizedBox(width: Space.x2),
-                        Text(
-                          _isToday
-                              ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
-                              : DateFormat('EEE, d MMM').format(_selectedDate.dateTime),
-                          style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+                        const SizedBox(width: Space.x1),
+                        Expanded(
+                          child: Text(
+                            isWeekly && weekBudget != null
+                                ? (weekBudget.contains(LocalDate.today())
+                                    ? 'This Week (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})'
+                                    : 'Week ${weekBudget.weekNumber} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})')
+                                : (_isToday
+                                    ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
+                                    : DateFormat('EEE, d MMM').format(_selectedDate.dateTime)),
+                            style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        const SizedBox(width: Space.x2),
+                        const SizedBox(width: Space.x1),
                         IconButton(
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           icon: Icon(
                             Icons.chevron_right,
-                            color: _isToday ? t.rule : t.inkSoft,
+                            color: (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday) ? t.rule : t.inkSoft,
                             size: 24,
                           ),
-                          tooltip: 'Next day',
-                          onPressed: _isToday
+                          tooltip: isWeekly ? 'Next week' : 'Next day',
+                          onPressed: (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday)
                               ? null
                               : () {
-                                  setState(() => _selectedDate = _selectedDate.addDays(1));
+                                  if (isWeekly && weekBudget != null) {
+                                    setState(() => _selectedDate = weekBudget!.endDate.addDays(1));
+                                  } else {
+                                    setState(() => _selectedDate = _selectedDate.addDays(1));
+                                  }
                                 },
                         ),
-                        const Spacer(),
-                        if (!_isToday)
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              minimumSize: Size.zero,
-                            ),
-                            onPressed: () => setState(() => _selectedDate = LocalDate.today()),
-                            child: Text('Jump to Today', style: TypeScale.caption(t.accent)),
+                        const SizedBox(width: Space.x2),
+                        // Daily / Weekly toggle
+                        Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: t.card,
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                            border: Border.all(color: t.rule),
                           ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              InkWell(
+                                onTap: () => ref
+                                    .read(ledgerProvider.notifier)
+                                    .setPacingMode(PacingMode.daily),
+                                borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: !isWeekly ? t.accentTint : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                  ),
+                                  child: Text(
+                                    'Daily',
+                                    style: TypeScale.caption(!isWeekly ? t.accent : t.inkSoft)
+                                        .copyWith(
+                                      fontWeight: !isWeekly ? FontWeight.w700 : FontWeight.w500,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              InkWell(
+                                onTap: () => ref
+                                    .read(ledgerProvider.notifier)
+                                    .setPacingMode(PacingMode.weekly),
+                                borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isWeekly ? t.accentTint : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                  ),
+                                  child: Text(
+                                    'Weekly',
+                                    style: TypeScale.caption(isWeekly ? t.accent : t.inkSoft)
+                                        .copyWith(
+                                      fontWeight: isWeekly ? FontWeight.w700 : FontWeight.w500,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: Space.x3),
@@ -140,15 +267,58 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                     ),
                     Text(label, style: TypeScale.body(t.inkSoft)),
                     const SizedBox(height: Space.x4),
-                    AllowanceMeter(ratio: view.budget.usedRatio, caption: caption),
-                    if (view.budget.isOver && view.topCategoryName != null) ...[
+                    AllowanceMeter(ratio: usedRatio, caption: caption),
+                    if (remaining < 0 && topCategoryName != null) ...[
                       const SizedBox(height: Space.x2),
                       Text(
                         Copy.categoryTook(
-                          view.topCategoryName!,
-                          Money.formatPaise(view.topCategoryPaise, hide: hide),
+                          topCategoryName,
+                          Money.formatPaise(topCategoryPaise, hide: hide),
                         ),
                         style: TypeScale.caption(t.inkSoft),
+                      ),
+                    ],
+                    // Overspend recovery action banner
+                    if (remaining < 0) ...[
+                      const SizedBox(height: Space.x4),
+                      InkWell(
+                        onTap: () => showOverspendSheet(
+                          context,
+                          overPaise: remaining.abs(),
+                          date: _selectedDate,
+                          dayTxns: dayTxns,
+                        ),
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: t.card,
+                            border: Border.all(color: t.over.withValues(alpha: 0.6)),
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.shield_outlined, size: 20, color: t.over),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Overspent by ${Money.formatPaise(remaining.abs(), hide: hide)} · Manage',
+                                      style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
+                                    ),
+                                    Text(
+                                      'Reclassify spend to Outings to protect daily allowance',
+                                      style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.chevron_right, size: 18, color: t.inkSoft),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                     const SizedBox(height: Space.x4),
@@ -166,13 +336,99 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Day $dayNumberInCycle of ${cycle.lengthDays} · Allowance: ₹${view.budget.allowancePaise ~/ 100}/day',
+                              isWeekly && weekBudget != null
+                                  ? 'Week ${weekBudget.weekNumber} of ${weekBudget.totalWeeks} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)}) · Allowance: ₹${allowancePaise ~/ 100}/wk'
+                                  : 'Day $dayNumberInCycle of ${cycle.lengthDays} · Allowance: ₹${allowancePaise ~/ 100}/day',
                               style: TypeScale.caption(t.inkSoft),
                             ),
                           ),
                         ],
                       ),
                     ),
+                    if (isCrunchMode) ...[
+                      const SizedBox(height: Space.x3),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: t.card,
+                          border: Border.all(color: t.over.withValues(alpha: 0.6)),
+                          borderRadius: BorderRadius.circular(Space.controlRadius),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.tips_and_updates_outlined, size: 18, color: t.over),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Month-End Crunch Mode: ₹${pacePaise ~/ 100}/day left for $daysRemainingInCycle days',
+                                    style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  Text(
+                                    'Mess food & essential canteen meals only to finish the cycle safely.',
+                                    style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (piggyPaise > 0) ...[
+                      const SizedBox(height: Space.x3),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: t.card,
+                          border: Border.all(color: t.rule),
+                          borderRadius: BorderRadius.circular(Space.controlRadius),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.savings_outlined, size: 16, color: t.accent),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Outings Piggy Bank: ₹${piggyPaise ~/ 100} saved from past unspent days',
+                                style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (daysRemainingInCycle <= 3) ...[
+                      const SizedBox(height: Space.x3),
+                      InkWell(
+                        onTap: () => showMonthEndReceipt(context, ledger),
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: t.card,
+                            border: Border.all(color: t.rule),
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.receipt_long_outlined, size: 16, color: t.inkSoft),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Cycle wrapping up · Tap for Month-End Paper Receipt',
+                                  style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              Icon(Icons.chevron_right, size: 16, color: t.inkSoft),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: Space.x6),
                     PrimaryButton(
                       label: Copy.addSpend,
@@ -264,8 +520,9 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
               ),
             const SliverToBoxAdapter(child: SizedBox(height: Space.x12)),
           ],
-        );
-      },
+        ),
+      );
+    },
     );
   }
 
@@ -350,4 +607,83 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
           );
     }
   }
+
+  Widget _buildPendingInboxBanner(
+    BuildContext context,
+    PaperTokens t,
+    List<PendingTransaction> items,
+  ) {
+    final first = items.first;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.x4),
+      child: InkWell(
+        onTap: () => showPendingInboxSheet(context),
+        borderRadius: BorderRadius.circular(Space.controlRadius),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: t.accentTint,
+            borderRadius: BorderRadius.circular(Space.controlRadius),
+            border: Border.all(color: t.accent.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: t.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.mail_rounded, size: 16, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '${items.length} Slice Transaction${items.length > 1 ? 's' : ''}',
+                          style: TypeScale.caption(t.accent).copyWith(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: t.card,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'NEW',
+                            style: TypeScale.caption(t.accent).copyWith(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${first.merchant} · ${Money.formatPaise(first.amountPaise)} · Tap to review',
+                      style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.arrow_forward_ios_rounded, size: 14, color: t.accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
+

@@ -11,13 +11,23 @@ import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/chips.dart';
 import '../widgets/hairline.dart';
 
-class InsightsScreen extends ConsumerWidget {
+enum GraphMode { daily, weekly, burnRate, category }
+
+class InsightsScreen extends ConsumerStatefulWidget {
   const InsightsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<InsightsScreen> createState() => _InsightsScreenState();
+}
+
+class _InsightsScreenState extends ConsumerState<InsightsScreen> {
+  GraphMode _selectedGraph = GraphMode.daily;
+
+  @override
+  Widget build(BuildContext context) {
     final t = TokenScope.of(context);
     final async = ref.watch(ledgerProvider);
 
@@ -30,7 +40,8 @@ class InsightsScreen extends ConsumerWidget {
         final hide = ledger.settings.hideAmounts;
         final ordinary = ordinaryThisCycle(ledger, cycle);
         final extra = extraThisCycle(ledger, cycle);
-        final stipend = ledger.settings.stipendPaise;
+        final stipend = effectiveStipendForCycle(ledger, cycle);
+        final rolloverPaise = rolloverSavingsFromPreviousCycle(ledger, cycle);
         final engine = const BudgetEngine();
 
         final daysElapsed = today.dateTime.difference(cycle.start.dateTime).inDays + 1;
@@ -40,22 +51,52 @@ class InsightsScreen extends ConsumerWidget {
             ? remainingStipend ~/ daysRemaining
             : 0;
 
+        // Single-pass aggregation of daily net spends
+        final dailyNetMap = <LocalDate, int>{};
+        for (final x in ledger.transactions) {
+          if (x.bucket == Bucket.daily) {
+            dailyNetMap[x.localDate] = (dailyNetMap[x.localDate] ?? 0) + x.signedPaise;
+          }
+        }
+
         // Last 7 days data
         final days = <_DayBar>[];
         for (var i = 6; i >= 0; i--) {
           final d = today.addDays(-i);
-          final spent = ledger.transactions
-              .where((x) => x.bucket == Bucket.daily && x.localDate == d && x.direction == Direction.debit)
-              .fold<int>(0, (a, x) => a + x.amountPaise);
-          final refunds = ledger.transactions
-              .where((x) => x.bucket == Bucket.daily && x.localDate == d && x.direction == Direction.credit)
-              .fold<int>(0, (a, x) => a + x.amountPaise);
+          final netSpent = dailyNetMap[d] ?? 0;
           final allow = engine.allowanceFor(
             stipendPaise: stipend,
             cycle: cycle,
             day: d,
           );
-          days.add(_DayBar(date: d, spent: (spent - refunds).clamp(0, 999999999), allowance: allow));
+          days.add(_DayBar(date: d, spent: netSpent.clamp(0, 999999999), allowance: allow));
+        }
+
+        // Weekly trend data
+        final weeks = cycle.calendarWeeks();
+        final weekBars = <_WeekBar>[];
+        for (final w in weeks) {
+          final wStart = w.start;
+          final wEnd = w.end;
+
+          var wAllowance = 0;
+          var wSpent = 0;
+          for (var d = wStart; !d.isAfter(wEnd); d = d.addDays(1)) {
+            wAllowance += engine.allowanceFor(
+              stipendPaise: stipend,
+              cycle: cycle,
+              day: d,
+            );
+            wSpent += dailyNetMap[d] ?? 0;
+          }
+
+          weekBars.add(_WeekBar(
+            weekNumber: w.weekNumber,
+            label: 'W${w.weekNumber}',
+            dateRange: '${DateFormat('d/M').format(wStart.dateTime)}–${DateFormat('d/M').format(wEnd.dateTime)}',
+            spent: wSpent.clamp(0, 999999999),
+            allowance: wAllowance,
+          ));
         }
 
         // Category breakdown
@@ -74,10 +115,12 @@ class InsightsScreen extends ConsumerWidget {
         final catRows = byCat.entries.where((e) => e.value > 0).toList()
           ..sort((a, b) => b.value.compareTo(a.value));
 
-        final maxBar = days.fold<int>(
-          0,
-          (m, d) => [m, d.spent, d.allowance].reduce((a, b) => a > b ? a : b),
-        );
+        // Burn-rate calculations
+        final idealPacePaise = cycle.lengthDays > 0
+            ? (stipend * daysElapsed) ~/ cycle.lengthDays
+            : 0;
+        final paceDifference = idealPacePaise - ordinary;
+        final isAheadOfPace = paceDifference >= 0;
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(Space.margin, Space.x4, Space.margin, Space.x12),
@@ -88,6 +131,20 @@ class InsightsScreen extends ConsumerWidget {
               'Day $daysElapsed of ${cycle.lengthDays} · $daysRemaining ${daysRemaining == 1 ? 'day' : 'days'} left',
               style: TypeScale.caption(t.inkSoft),
             ),
+            if (rolloverPaise > 0) ...[
+              const SizedBox(height: Space.x2),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: t.accentTint,
+                  borderRadius: BorderRadius.circular(Space.controlRadius),
+                ),
+                child: Text(
+                  'Includes ₹${rolloverPaise ~/ 100} savings rolled forward from last cycle',
+                  style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
             const SizedBox(height: Space.x4),
 
             // Pacing Advice Card
@@ -139,132 +196,382 @@ class InsightsScreen extends ConsumerWidget {
             ),
 
             const SizedBox(height: Space.x8),
+
+            // Multi-Graph Interactive Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Last seven days', style: TypeScale.heading(t.ink)),
-                Text(
-                  'Allowance: ₹${stipend ~/ (cycle.lengthDays * 100)}/d',
-                  style: TypeScale.caption(t.inkSoft),
-                ),
+                Text('Visual Analytics', style: TypeScale.heading(t.ink)),
+                Text('Select View', style: TypeScale.caption(t.inkSoft)),
               ],
             ),
-            const SizedBox(height: Space.x4),
-            Container(
-              padding: const EdgeInsets.fromLTRB(Space.x3, Space.x4, Space.x3, Space.x3),
-              decoration: BoxDecoration(
-                color: t.card,
-                border: Border.all(color: t.rule),
-                borderRadius: BorderRadius.circular(Space.cardRadius),
-              ),
-              child: Column(
+            const SizedBox(height: Space.x3),
+
+            // Segmented Graph Mode Selector Chips
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
                 children: [
-                  SizedBox(
-                    height: 130,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        for (final d in days)
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              child: _Bar(
-                                spent: d.spent,
-                                allowance: d.allowance,
-                                max: maxBar == 0 ? 1 : maxBar,
-                                label: DateFormat('E').format(d.date.dateTime).substring(0, 1),
-                                dateStr: DateFormat('d/M').format(d.date.dateTime),
-                                hide: hide,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                  LedgerChip(
+                    label: '7-Day Bars',
+                    selected: _selectedGraph == GraphMode.daily,
+                    onTap: () => setState(() => _selectedGraph = GraphMode.daily),
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(width: 8, height: 8, decoration: BoxDecoration(color: t.accent, borderRadius: BorderRadius.circular(2))),
-                      const SizedBox(width: 4),
-                      Text('Under allowance', style: TypeScale.caption(t.inkSoft)),
-                      const SizedBox(width: 16),
-                      Container(width: 8, height: 8, decoration: BoxDecoration(color: t.over, borderRadius: BorderRadius.circular(2))),
-                      const SizedBox(width: 4),
-                      Text('Over allowance', style: TypeScale.caption(t.inkSoft)),
-                    ],
+                  const SizedBox(width: Space.x2),
+                  LedgerChip(
+                    label: 'Weekly Trend',
+                    selected: _selectedGraph == GraphMode.weekly,
+                    onTap: () => setState(() => _selectedGraph = GraphMode.weekly),
+                  ),
+                  const SizedBox(width: Space.x2),
+                  LedgerChip(
+                    label: 'Burn-Rate Pace',
+                    selected: _selectedGraph == GraphMode.burnRate,
+                    onTap: () => setState(() => _selectedGraph = GraphMode.burnRate),
+                  ),
+                  const SizedBox(width: Space.x2),
+                  LedgerChip(
+                    label: 'Categories',
+                    selected: _selectedGraph == GraphMode.category,
+                    onTap: () => setState(() => _selectedGraph = GraphMode.category),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: Space.x4),
+
+            // Graph Display Container
+            _buildGraphContent(
+              t: t,
+              mode: _selectedGraph,
+              days: days,
+              weekBars: weekBars,
+              catRows: catRows,
+              totalCatSpent: totalCatSpent,
+              ledger: ledger,
+              hide: hide,
+              daysElapsed: daysElapsed,
+              totalDays: cycle.lengthDays,
+              stipend: stipend,
+              ordinary: ordinary,
+              idealPace: idealPacePaise,
+              paceDifference: paceDifference,
+              isAhead: isAheadOfPace,
+            ),
 
             const SizedBox(height: Space.x8),
-            Text('By category', style: TypeScale.heading(t.ink)),
-            const SizedBox(height: Space.x3),
-            if (catRows.isEmpty)
-              Text('No ordinary spends recorded this cycle.', style: TypeScale.body(t.inkSoft))
-            else
-              Container(
-                decoration: BoxDecoration(
-                  color: t.card,
-                  border: Border.all(color: t.rule),
-                  borderRadius: BorderRadius.circular(Space.cardRadius),
-                ),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < catRows.length; i++) ...[
-                      if (i > 0) const Hairline(),
-                      Builder(
-                        builder: (context) {
-                          final row = catRows[i];
-                          final cat = ledger.categoryById(row.key);
-                          final catName = cat?.name ?? row.key;
-                          final iconKey = cat?.icon ?? 'custom';
-                          final share = totalCatSpent > 0 ? (row.value / totalCatSpent) : 0.0;
-                          final pct = (share * 100).round();
 
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: Space.x4, vertical: 10),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(categoryIcon(iconKey), size: 16, color: t.inkSoft),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(catName, style: TypeScale.body(t.ink)),
-                                    ),
-                                    Text('$pct%', style: TypeScale.caption(t.inkSoft)),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      Money.formatPaise(row.value, hide: hide),
-                                      style: TypeScale.money(t.ink, size: 15),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(2),
-                                  child: LinearProgressIndicator(
-                                    value: share,
-                                    minHeight: 4,
-                                    backgroundColor: t.rule,
-                                    valueColor: AlwaysStoppedAnimation<Color>(t.accent),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+            // Category summary always available at bottom
+            if (_selectedGraph != GraphMode.category) ...[
+              Text('By category', style: TypeScale.heading(t.ink)),
+              const SizedBox(height: Space.x3),
+              if (catRows.isEmpty)
+                Text('No ordinary spends recorded this cycle.', style: TypeScale.body(t.inkSoft))
+              else
+                _buildCategoryList(t, catRows, totalCatSpent, ledger, hide),
+            ],
           ],
         );
       },
+    );
+  }
+
+  Widget _buildGraphContent({
+    required PaperTokens t,
+    required GraphMode mode,
+    required List<_DayBar> days,
+    required List<_WeekBar> weekBars,
+    required List<MapEntry<String, int>> catRows,
+    required int totalCatSpent,
+    required Ledger ledger,
+    required bool hide,
+    required int daysElapsed,
+    required int totalDays,
+    required int stipend,
+    required int ordinary,
+    required int idealPace,
+    required int paceDifference,
+    required bool isAhead,
+  }) {
+    switch (mode) {
+      case GraphMode.daily:
+        final maxBar = days.fold<int>(
+          0,
+          (m, d) => [m, d.spent, d.allowance].reduce((a, b) => a > b ? a : b),
+        );
+        return Container(
+          padding: const EdgeInsets.fromLTRB(Space.x3, Space.x4, Space.x3, Space.x3),
+          decoration: BoxDecoration(
+            color: t.card,
+            border: Border.all(color: t.rule),
+            borderRadius: BorderRadius.circular(Space.cardRadius),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Daily Spend vs Allowance (Past 7 Days)', style: TypeScale.caption(t.inkSoft)),
+              const SizedBox(height: Space.x3),
+              SizedBox(
+                height: 146,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (final d in days)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: _Bar(
+                            spent: d.spent,
+                            allowance: d.allowance,
+                            max: maxBar == 0 ? 1 : maxBar,
+                            label: DateFormat('E').format(d.date.dateTime).substring(0, 1),
+                            dateStr: DateFormat('d/M').format(d.date.dateTime),
+                            hide: hide,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(width: 8, height: 8, decoration: BoxDecoration(color: t.accent, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(width: 4),
+                  Text('Within budget', style: TypeScale.caption(t.inkSoft)),
+                  const SizedBox(width: 16),
+                  Container(width: 8, height: 8, decoration: BoxDecoration(color: t.over, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(width: 4),
+                  Text('Over allowance', style: TypeScale.caption(t.inkSoft)),
+                ],
+              ),
+            ],
+          ),
+        );
+
+      case GraphMode.weekly:
+        final maxWeekBar = weekBars.fold<int>(
+          0,
+          (m, w) => [m, w.spent, w.allowance].reduce((a, b) => a > b ? a : b),
+        );
+        return Container(
+          padding: const EdgeInsets.fromLTRB(Space.x3, Space.x4, Space.x3, Space.x3),
+          decoration: BoxDecoration(
+            color: t.card,
+            border: Border.all(color: t.rule),
+            borderRadius: BorderRadius.circular(Space.cardRadius),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Weekly Spend Comparison Across Month', style: TypeScale.caption(t.inkSoft)),
+              const SizedBox(height: Space.x3),
+              SizedBox(
+                height: 146,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (final w in weekBars)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: _Bar(
+                            spent: w.spent,
+                            allowance: w.allowance,
+                            max: maxWeekBar == 0 ? 1 : maxWeekBar,
+                            label: w.label,
+                            dateStr: w.dateRange,
+                            hide: hide,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(width: 8, height: 8, decoration: BoxDecoration(color: t.accent, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(width: 4),
+                  Text('Within week budget', style: TypeScale.caption(t.inkSoft)),
+                  const SizedBox(width: 16),
+                  Container(width: 8, height: 8, decoration: BoxDecoration(color: t.over, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(width: 4),
+                  Text('Over week budget', style: TypeScale.caption(t.inkSoft)),
+                ],
+              ),
+            ],
+          ),
+        );
+
+      case GraphMode.burnRate:
+        final spentPct = stipend > 0 ? (ordinary / stipend).clamp(0.0, 1.0) : 0.0;
+        final timePct = totalDays > 0 ? (daysElapsed / totalDays).clamp(0.0, 1.0) : 0.0;
+
+        return Container(
+          padding: const EdgeInsets.all(Space.x4),
+          decoration: BoxDecoration(
+            color: t.card,
+            border: Border.all(color: t.rule),
+            borderRadius: BorderRadius.circular(Space.cardRadius),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isAhead ? Icons.trending_up : Icons.trending_down,
+                    size: 20,
+                    color: isAhead ? t.accent : t.over,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isAhead
+                        ? 'Ahead of Pace · ${Money.formatPaise(paceDifference.abs(), hide: hide)} Surplus'
+                        : 'Behind Pace · ${Money.formatPaise(paceDifference.abs(), hide: hide)} Ahead of Burn',
+                    style: TypeScale.heading(isAhead ? t.accent : t.over),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Space.x2),
+              Text(
+                isAhead
+                    ? 'At day $daysElapsed of $totalDays, you have spent less than the ideal linear benchmark. Great pace!'
+                    : 'Spending is running slightly higher than linear pace. Slow down daily spends to end the month even.',
+                style: TypeScale.body(t.inkSoft),
+              ),
+              const SizedBox(height: Space.x6),
+
+              // Burn Progress Visualizer
+              Text('Monthly Allowance Consumed', style: TypeScale.caption(t.inkSoft)),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Actual: ${(spentPct * 100).round()}% (${Money.formatPaise(ordinary, hide: hide)})',
+                    style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    'Target: ${(timePct * 100).round()}%',
+                    style: TypeScale.caption(t.inkSoft),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Stack(
+                children: [
+                  Container(
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: t.rule,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  FractionallySizedBox(
+                    widthFactor: spentPct,
+                    child: Container(
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: spentPct > timePct ? t.over : t.accent,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Space.x3),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Day 1', style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 10)),
+                  Text('Day $daysElapsed (Today)', style: TypeScale.caption(t.accent).copyWith(fontSize: 10, fontWeight: FontWeight.w700)),
+                  Text('Day $totalDays', style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 10)),
+                ],
+              ),
+            ],
+          ),
+        );
+
+      case GraphMode.category:
+        if (catRows.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(Space.x4),
+            decoration: BoxDecoration(color: t.card, border: Border.all(color: t.rule)),
+            child: Text('No ordinary spends recorded yet.', style: TypeScale.body(t.inkSoft)),
+          );
+        }
+        return _buildCategoryList(t, catRows, totalCatSpent, ledger, hide);
+    }
+  }
+
+  Widget _buildCategoryList(
+    PaperTokens t,
+    List<MapEntry<String, int>> catRows,
+    int totalCatSpent,
+    Ledger ledger,
+    bool hide,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: t.card,
+        border: Border.all(color: t.rule),
+        borderRadius: BorderRadius.circular(Space.cardRadius),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < catRows.length; i++) ...[
+            if (i > 0) const Hairline(),
+            Builder(
+              builder: (context) {
+                final row = catRows[i];
+                final cat = ledger.categoryById(row.key);
+                final catName = cat?.name ?? row.key;
+                final iconKey = cat?.icon ?? 'custom';
+                final share = totalCatSpent > 0 ? (row.value / totalCatSpent) : 0.0;
+                final pct = (share * 100).round();
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.x4, vertical: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(categoryIcon(iconKey), size: 16, color: t.inkSoft),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(catName, style: TypeScale.body(t.ink)),
+                          ),
+                          Text('$pct%', style: TypeScale.caption(t.inkSoft)),
+                          const SizedBox(width: 8),
+                          Text(
+                            Money.formatPaise(row.value, hide: hide),
+                            style: TypeScale.money(t.ink, size: 15),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: share,
+                          minHeight: 4,
+                          backgroundColor: t.rule,
+                          valueColor: AlwaysStoppedAnimation<Color>(t.accent),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -272,6 +579,21 @@ class InsightsScreen extends ConsumerWidget {
 class _DayBar {
   _DayBar({required this.date, required this.spent, required this.allowance});
   final LocalDate date;
+  final int spent;
+  final int allowance;
+}
+
+class _WeekBar {
+  _WeekBar({
+    required this.weekNumber,
+    required this.label,
+    required this.dateRange,
+    required this.spent,
+    required this.allowance,
+  });
+  final int weekNumber;
+  final String label;
+  final String dateRange;
   final int spent;
   final int allowance;
 }
@@ -316,37 +638,59 @@ class _Bar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = TokenScope.of(context);
-    const h = 96.0;
-    final spentH = max > 0 ? (spent / max) * h : 0.0;
+    const maxBarH = 80.0;
+    final spentH = max > 0 ? (spent / max) * maxBarH : 0.0;
     final over = spent > allowance;
 
     return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (spent > 0)
-          Text(
-            hide ? '···' : '₹${spent ~/ 100}',
-            style: TypeScale.caption(over ? t.over : t.inkSoft).copyWith(fontSize: 10),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          )
-        else
-          const SizedBox(height: 14),
-        const SizedBox(height: 2),
-        Container(
-          height: spentH.clamp(spent > 0 ? 3.0 : 1.0, h),
-          decoration: BoxDecoration(
-            color: spent == 0
-                ? t.rule
-                : over
-                    ? t.over
-                    : t.accent,
-            borderRadius: BorderRadius.circular(2),
+        // Upper Bar Area: fixed height so all bars sit on the exact same baseline
+        SizedBox(
+          height: maxBarH + 20, // 20px headroom for amount text
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (spent > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    hide ? '···' : '₹${spent ~/ 100}',
+                    style: TypeScale.caption(over ? t.over : t.inkSoft)
+                        .copyWith(fontSize: 10, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              Container(
+                height: spent > 0 ? spentH.clamp(3.0, maxBarH) : 0.0,
+                decoration: BoxDecoration(
+                  color: over ? t.over : t.accent,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                ),
+              ),
+            ],
           ),
         ),
+        // Continuous horizontal baseline across all days
+        Container(
+          height: 1.5,
+          color: t.rule,
+        ),
         const SizedBox(height: 6),
-        Text(label, style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w600)),
-        Text(dateStr, style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 9)),
+        // Day & Date labels pinned at exact same vertical position
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          dateStr,
+          textAlign: TextAlign.center,
+          style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 9),
+        ),
       ],
     );
   }
