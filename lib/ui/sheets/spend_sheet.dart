@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -13,6 +15,7 @@ import '../widgets/amount_pad.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/chips.dart';
 import '../widgets/primary_button.dart';
+import 'bill_split_sheet.dart';
 
 enum ReceivedType {
   topUp,
@@ -136,15 +139,23 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
             );
       }
 
-      await ref.read(ledgerProvider.notifier).addDailySpend(
-            amountPaise: _amount.paiseTotal,
-            categoryId: _categoryId,
-            date: _date,
-            merchant: _merchant.text.trim(),
-            direction: Direction.debit,
-            note: _note.text.trim(),
-            editing: widget.editing,
-          );
+      final mySharePaise = (_splitWithFriend && friendName.isNotEmpty && friendSharePaise > 0)
+          ? max(0, _amount.paiseTotal - friendSharePaise)
+          : _amount.paiseTotal;
+
+      if (mySharePaise > 0 || !_splitWithFriend) {
+        await ref.read(ledgerProvider.notifier).addDailySpend(
+              amountPaise: mySharePaise,
+              categoryId: _categoryId,
+              date: _date,
+              merchant: _merchant.text.trim(),
+              direction: Direction.debit,
+              note: _splitWithFriend && friendSharePaise > 0
+                  ? '${_note.text.trim()} (My share of ${Money.formatPaise(_amount.paiseTotal)})'.trim()
+                  : _note.text.trim(),
+              editing: widget.editing,
+            );
+      }
       if (mounted) Navigator.of(context).pop();
       return;
     }
@@ -523,10 +534,56 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Pocket will create a split in Splits owed to you.',
-                            style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 10),
+                          const SizedBox(height: 8),
+                          Builder(
+                            builder: (context) {
+                              final friendRupees = int.tryParse(_friendShareController.text.trim()) ?? 0;
+                              final totalRupees = _amount.paiseTotal ~/ 100;
+                              final myRupees = max(0, totalRupees - friendRupees);
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Your share: ₹$myRupees (debited to Today) · Friend owes: ₹$friendRupees (in Splits)',
+                                    style: TypeScale.caption(t.accent).copyWith(fontSize: 11, fontWeight: FontWeight.w600),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  InkWell(
+                                    onTap: () async {
+                                      final nav = Navigator.of(context);
+                                      final done = await showBillSplitSheet(
+                                        context,
+                                        totalAmountPaise: _amount.paiseTotal,
+                                        merchant: _merchant.text.trim(),
+                                        initialDate: _date,
+                                        initialCategoryId: _categoryId,
+                                        allowEditTotal: true,
+                                      );
+                                      if (done == true && mounted) {
+                                        nav.pop();
+                                      }
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 2),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.group_add_outlined, size: 14, color: t.inkSoft),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Split equally with multiple friends...',
+                                            style: TypeScale.caption(t.inkSoft).copyWith(
+                                              decoration: TextDecoration.underline,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                         ],
                       ),

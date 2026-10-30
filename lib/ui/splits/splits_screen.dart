@@ -3,13 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/dates.dart';
 import '../../core/money.dart';
 import '../../data/models.dart';
 import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
+import '../sheets/bill_split_sheet.dart';
 import '../sheets/split_sheet.dart';
 import '../widgets/chips.dart';
 import '../widgets/hairline.dart';
@@ -64,7 +64,7 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
             elevation: 2,
             icon: const Icon(Icons.add, size: 20),
             label: const Text('Add Split'),
-            onPressed: () => showSplitSheet(context),
+            onPressed: () => _onAddSplitPressed(context),
           ),
           body: CustomScrollView(
             slivers: [
@@ -456,126 +456,57 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
   }
 
   Future<void> _openGroupCalculator(BuildContext context) async {
-    final t = TokenScope.of(context);
-    final totalController = TextEditingController();
-    final namesController = TextEditingController();
-    final descController = TextEditingController();
+    await showBillSplitSheet(context, totalAmountPaise: 0, allowEditTotal: true);
+  }
 
-    await showDialog<void>(
+  void _onAddSplitPressed(BuildContext context) {
+    final t = TokenScope.of(context);
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Group Bill Splitter', style: TypeScale.heading(t.ink)),
-        content: SingleChildScrollView(
+      backgroundColor: t.paper,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Space.margin, vertical: Space.x4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Paid for lunch or a trip? Split equally among friends in seconds.',
-                style: TypeScale.caption(t.inkSoft),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(color: t.rule, borderRadius: BorderRadius.circular(2)),
               ),
               const SizedBox(height: Space.x4),
-              TextField(
-                controller: totalController,
-                keyboardType: TextInputType.number,
-                style: TypeScale.body(t.ink),
-                cursorColor: t.accent,
-                decoration: InputDecoration(
-                  labelText: 'Total Bill Amount (₹)',
-                  prefixText: '₹ ',
-                  prefixStyle: TypeScale.body(t.ink),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Space.controlRadius),
-                    borderSide: BorderSide(color: t.accent),
-                  ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: t.accentTint,
+                  child: Icon(Icons.call_split_rounded, color: t.accent),
                 ),
+                title: Text('Split a Bill with Friends', style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w700)),
+                subtitle: Text('e.g. ₹100 bill: your share goes to Today, rest goes to Splits', style: TypeScale.caption(t.inkSoft)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showBillSplitSheet(context, totalAmountPaise: 0, allowEditTotal: true);
+                },
               ),
-              const SizedBox(height: Space.x3),
-              TextField(
-                controller: namesController,
-                style: TypeScale.body(t.ink),
-                cursorColor: t.accent,
-                decoration: InputDecoration(
-                  labelText: 'Friends who share this (comma separated)',
-                  hintText: 'Rahul, Aman, Sneha',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Space.controlRadius),
-                    borderSide: BorderSide(color: t.accent),
-                  ),
+              const Hairline(indent: 56),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: t.card,
+                  child: Icon(Icons.handshake_outlined, color: t.ink),
                 ),
-              ),
-              const SizedBox(height: Space.x3),
-              TextField(
-                controller: descController,
-                style: TypeScale.body(t.ink),
-                cursorColor: t.accent,
-                decoration: InputDecoration(
-                  labelText: 'For what?',
-                  hintText: 'e.g. Swiggy order, Canteen bill, Cab share',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(Space.controlRadius),
-                    borderSide: BorderSide(color: t.accent),
-                  ),
-                ),
+                title: Text('Direct Friend IOU', style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w700)),
+                subtitle: Text('Directly track money you lent or borrowed 1-on-1', style: TypeScale.caption(t.inkSoft)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showSplitSheet(context);
+                },
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
-          ),
-          TextButton(
-            onPressed: () async {
-              final rawTotal = int.tryParse(totalController.text.trim()) ?? 0;
-              final names = namesController.text
-                  .split(',')
-                  .map((s) => s.trim())
-                  .where((s) => s.isNotEmpty)
-                  .toList();
-              final desc = descController.text.trim();
-
-              if (rawTotal <= 0 || names.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter valid bill total and friend names')),
-                );
-                return;
-              }
-
-              // Including the user, total people = names.length + 1
-              final totalPeople = names.length + 1;
-              final totalPaise = rawTotal * 100;
-              final sharePaise = totalPaise ~/ totalPeople;
-
-              final notifier = ref.read(ledgerProvider.notifier);
-              for (final friend in names) {
-                await notifier.addFriendSplit(
-                  friendName: friend,
-                  amountPaise: sharePaise,
-                  direction: SplitDirection.youAreOwed,
-                  date: LocalDate.today(),
-                  note: desc.isNotEmpty ? '$desc (split of ₹$rawTotal)' : 'Bill split of ₹$rawTotal',
-                );
-              }
-
-              if (ctx.mounted) Navigator.pop(ctx);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Created ${names.length} splits of ${Money.formatPaise(sharePaise)} each!',
-                    ),
-                  ),
-                );
-              }
-            },
-            child: Text('Create Splits', style: TypeScale.body(t.accent)),
-          ),
-        ],
       ),
     );
   }

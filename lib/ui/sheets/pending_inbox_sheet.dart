@@ -8,7 +8,7 @@ import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
-import 'split_sheet.dart';
+import 'bill_split_sheet.dart';
 
 Future<void> showPendingInboxSheet(BuildContext context) {
   return showModalBottomSheet<void>(
@@ -539,27 +539,14 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
   }
 
   Future<void> _splitWithFriends(PendingTransaction item, String categoryId) async {
-    final splitAdded = await showSplitSheet(
+    await showBillSplitSheet(
       context,
-      initialAmountPaise: item.amountPaise,
-      initialNote: item.merchant,
+      totalAmountPaise: item.amountPaise,
+      merchant: item.merchant,
       initialDate: item.localDate,
-      initialDirection: SplitDirection.youAreOwed,
-      initialDeductFromDaily: false,
+      initialCategoryId: categoryId,
+      pendingInboxId: item.id,
     );
-
-    if (splitAdded == true) {
-      // Mark the inbox item approved/dismissed
-      await ref.read(ledgerProvider.notifier).dismissInboxTransaction(item.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Split recorded for ${item.merchant}'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _dismiss(PendingTransaction item) async {

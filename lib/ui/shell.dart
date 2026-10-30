@@ -9,6 +9,7 @@ import '../theme/tokens.dart';
 import 'insights/insights_screen.dart';
 import 'outings/outings_screen.dart';
 import 'settings/settings_screen.dart';
+import 'splits/splits_screen.dart';
 import 'today/today_screen.dart';
 import 'widgets/hairline.dart';
 
@@ -23,7 +24,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   int _index = 0;
   DateTime? _lastSyncAttempt;
 
-  static const _titles = [Copy.today, Copy.outings, Copy.insights];
+  static const _titles = [Copy.today, Copy.splits, Copy.outings, Copy.insights];
 
   @override
   void initState() {
@@ -95,6 +96,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
         index: _index,
         children: const [
           TodayScreen(),
+          SplitsScreen(),
           OutingsScreen(),
           InsightsScreen(),
         ],
@@ -118,6 +120,11 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
                 icon: Icon(Icons.today_outlined, color: t.inkSoft),
                 selectedIcon: Icon(Icons.today_outlined, color: t.accent),
                 label: Copy.today,
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.group_outlined, color: t.inkSoft),
+                selectedIcon: Icon(Icons.group_outlined, color: t.accent),
+                label: Copy.splits,
               ),
               NavigationDestination(
                 icon: Icon(Icons.directions_walk_outlined, color: t.inkSoft),

@@ -179,6 +179,29 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> splitBill({
+    required int totalAmountPaise,
+    required int mySharePaise,
+    required List<({String friendName, int amountPaise})> friends,
+    required LocalDate date,
+    required String categoryId,
+    required String merchant,
+    String note = '',
+    String? pendingInboxId,
+  }) async {
+    await _repo.splitBill(
+      totalAmountPaise: totalAmountPaise,
+      mySharePaise: mySharePaise,
+      friends: friends,
+      date: date,
+      categoryId: categoryId,
+      merchant: merchant,
+      note: note,
+      pendingInboxId: pendingInboxId,
+    );
+    await _reload();
+  }
+
   Future<void> borrowFromTomorrow({
     required int amountPaise,
     required LocalDate today,

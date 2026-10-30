@@ -2,7 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pocket/core/backup.dart';
 import 'package:pocket/core/dates.dart';
 import 'package:pocket/core/upi_sms_parser.dart';
+import 'package:pocket/data/database.dart';
 import 'package:pocket/data/models.dart';
+import 'package:pocket/data/repository.dart';
 import 'package:pocket/state/ledger.dart';
 
 void main() {
@@ -232,6 +234,49 @@ void main() {
       // Ordinary daily spend and effective stipend are completely unchanged!
       expect(ordinaryThisCycle(ledgerAfter, cycle), 0);
       expect(effectiveStipendForCycle(ledgerAfter, cycle), 300000);
+    });
+  });
+
+  group('Bill Split Isolation Tests', () {
+    test('splitBill debits only user share (₹20) to Today spend and sends ₹80 to Splits section', () async {
+      final repo = PocketRepository(PocketDatabase.instance, inMemory: true);
+      await repo.wipe();
+      final today = LocalDate.today();
+
+      await repo.splitBill(
+        totalAmountPaise: 10000, // ₹100 total
+        mySharePaise: 2000,      // ₹20 my share
+        friends: [
+          (friendName: 'Rahul', amountPaise: 2000),
+          (friendName: 'Aman', amountPaise: 2000),
+          (friendName: 'Sneha', amountPaise: 2000),
+          (friendName: 'Rohan', amountPaise: 2000),
+        ],
+        date: today,
+        categoryId: 'food',
+        merchant: 'Canteen Thali',
+      );
+
+      final ledger = await repo.load();
+
+      // Only 1 transaction in daily spend for ₹20
+      expect(ledger.transactions.length, 1);
+      final userTxn = ledger.transactions.first;
+      expect(userTxn.amountPaise, 2000); // Exactly ₹20
+      expect(userTxn.direction, Direction.debit);
+      expect(userTxn.merchant, 'Canteen Thali');
+      expect(userTxn.bucket, Bucket.daily);
+
+      // In Splits section: 4 friends owe ₹20 each = ₹80 total
+      expect(ledger.friendSplits.length, 4);
+      expect(ledger.totalOwedToMePaise, 8000); // Exactly ₹80
+      expect(ledger.totalIOwePaise, 0);
+      expect(ledger.netFriendBalancePaise, 8000);
+
+      // Verify that Today's spend calculation only includes ₹20
+      final todayView = buildToday(ledger, date: today);
+      expect(todayView.budget.spentPaise, 2000); // Only ₹20 deducted from allowance!
+      expect(todayView.budget.netSpent, 2000);
     });
   });
 }

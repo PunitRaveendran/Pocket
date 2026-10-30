@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/dates.dart';
+import '../core/money.dart';
 import 'database.dart';
 import 'models.dart';
 
@@ -711,6 +712,92 @@ class PocketRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  Future<void> splitBill({
+    required int totalAmountPaise,
+    required int mySharePaise,
+    required List<({String friendName, int amountPaise})> friends,
+    required LocalDate date,
+    required String categoryId,
+    required String merchant,
+    String note = '',
+    String? pendingInboxId,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    Txn? userTxn;
+    if (mySharePaise > 0) {
+      userTxn = Txn(
+        id: _uuid.v4(),
+        amountPaise: mySharePaise,
+        direction: Direction.debit,
+        occurredAtMs: now,
+        localDate: date,
+        merchant: merchant.isNotEmpty ? merchant : 'Bill Split',
+        categoryId: categoryId.isNotEmpty ? categoryId : 'food',
+        bucket: Bucket.daily,
+        note: note.isNotEmpty
+            ? '$note (My share of ${Money.formatPaise(totalAmountPaise)})'
+            : 'My share of ${Money.formatPaise(totalAmountPaise)}',
+      );
+    }
+
+    final newSplits = <FriendSplit>[];
+    for (var i = 0; i < friends.length; i++) {
+      final f = friends[i];
+      if (f.amountPaise <= 0 || f.friendName.trim().isEmpty) continue;
+      newSplits.add(
+        FriendSplit(
+          id: _uuid.v4(),
+          friendName: f.friendName.trim(),
+          amountPaise: f.amountPaise,
+          direction: SplitDirection.youAreOwed,
+          occurredAtMs: now + i + 1,
+          localDate: date,
+          note: merchant.isNotEmpty ? '$merchant split' : (note.isNotEmpty ? note : 'Bill split'),
+          isSettled: false,
+        ),
+      );
+    }
+
+    if (_isInMemory) {
+      if (userTxn != null) _webTxns.insert(0, userTxn);
+      for (final s in newSplits) {
+        _webSplits.insert(0, s);
+      }
+      if (pendingInboxId != null) {
+        final idx = _webPendingInbox.indexWhere((p) => p.id == pendingInboxId);
+        if (idx != -1) {
+          _webPendingInbox[idx] = _webPendingInbox[idx].copyWith(status: InboxStatus.approved);
+        }
+      }
+      if (merchant.isNotEmpty && categoryId.isNotEmpty) {
+        await recordMerchantCategory(merchant, categoryId);
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.transaction((txn) async {
+      if (userTxn != null) {
+        await txn.insert('txns', _txnToRow(userTxn));
+      }
+      for (final s in newSplits) {
+        await txn.insert('friend_splits', _splitToRow(s));
+      }
+      if (pendingInboxId != null) {
+        await txn.update(
+          'pending_inbox',
+          {'status': 'approved'},
+          where: 'id = ?',
+          whereArgs: [pendingInboxId],
+        );
+      }
+    });
+
+    if (merchant.isNotEmpty && categoryId.isNotEmpty) {
+      await recordMerchantCategory(merchant, categoryId);
+    }
   }
 
   Future<void> wipe() async {

@@ -9,6 +9,7 @@ import 'package:pocket/theme/app_theme.dart';
 import 'package:pocket/theme/tokens.dart';
 import 'package:pocket/ui/insights/insights_screen.dart';
 import 'package:pocket/ui/outings/outings_screen.dart';
+import 'package:pocket/ui/shell.dart';
 import 'package:pocket/ui/splits/splits_screen.dart';
 import 'package:pocket/ui/today/today_screen.dart';
 import 'package:pocket/ui/widgets/allowance_meter.dart';
@@ -290,6 +291,32 @@ void main() {
     expect(find.text('What was this for?'), findsOneWidget);
     expect(find.text('Just me'), findsOneWidget);
     expect(find.text('Split with friends'), findsOneWidget);
+  });
+
+  testWidgets('AppShell renders all 4 tabs including restored Splits tab and navigates correctly', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const AppShell()));
+    await tester.pumpAndSettle();
+
+    // Verify all 4 bottom navigation tabs are present
+    expect(find.text('Today'), findsWidgets);
+    expect(find.text('Splits'), findsWidgets);
+    expect(find.text('Outings'), findsWidgets);
+    expect(find.text('Insights'), findsWidgets);
+
+    // Tap on Splits tab
+    await tester.tap(find.text('Splits'));
+    await tester.pumpAndSettle();
+
+    // Verify Splits screen content is now shown
+    expect(find.text('Overall: You get back'), findsOneWidget);
+    expect(find.text('Add Split'), findsOneWidget);
   });
 }
 
