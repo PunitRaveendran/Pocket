@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/dates.dart';
@@ -33,7 +34,33 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
 
   Future<void> _reload() async {
     final loaded = await _repo.load();
-    state = AsyncData(loaded);
+    final prev = state.valueOrNull;
+    if (prev != null) {
+      final settings = prev.settings == loaded.settings ? prev.settings : loaded.settings;
+      final categories =
+          listEquals(prev.categories, loaded.categories) ? prev.categories : loaded.categories;
+      final txns =
+          listEquals(prev.transactions, loaded.transactions) ? prev.transactions : loaded.transactions;
+      final outings =
+          listEquals(prev.outings, loaded.outings) ? prev.outings : loaded.outings;
+      final splits =
+          listEquals(prev.friendSplits, loaded.friendSplits) ? prev.friendSplits : loaded.friendSplits;
+      final inbox =
+          listEquals(prev.pendingInbox, loaded.pendingInbox) ? prev.pendingInbox : loaded.pendingInbox;
+
+      state = AsyncData(
+        Ledger(
+          settings: settings,
+          categories: categories,
+          transactions: txns,
+          outings: outings,
+          friendSplits: splits,
+          pendingInbox: inbox,
+        ),
+      );
+    } else {
+      state = AsyncData(loaded);
+    }
   }
 
   Future<void> completeOnboarding({
@@ -127,8 +154,18 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> updateTxn(Txn txn) async {
+    await _repo.updateTxn(txn);
+    await _reload();
+  }
+
   Future<void> deleteTxn(String id) async {
     await _repo.softDeleteTxn(id);
+    await _reload();
+  }
+
+  Future<void> restoreTxn(Txn txn) async {
+    await _repo.restoreTxn(txn);
     await _reload();
   }
 
@@ -301,6 +338,7 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     Bucket bucket = Bucket.daily,
     String? outingId,
     String? note,
+    String? merchant,
   }) async {
     final txn = await _repo.approvePendingTransaction(
       pending,
@@ -308,6 +346,7 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
       bucket: bucket,
       outingId: outingId,
       note: note,
+      merchant: merchant,
     );
     await _reload();
     return txn;

@@ -112,10 +112,39 @@ Widget _wrap(Widget child, {Ledger? ledger}) {
 
 class _MockLedgerNotifier extends LedgerNotifier {
   _MockLedgerNotifier(this._initial);
-  final Ledger _initial;
+  Ledger _initial;
 
   @override
   Future<Ledger> build() async => _initial;
+
+  @override
+  Future<void> deleteTxn(String id) async {
+    final current = state.valueOrNull ?? _initial;
+    _initial = current.copyWith(
+      transactions: current.transactions.where((t) => t.id != id).toList(),
+    );
+    state = AsyncData(_initial);
+  }
+
+  @override
+  Future<void> updateTxn(Txn txn) async {
+    final current = state.valueOrNull ?? _initial;
+    _initial = current.copyWith(
+      transactions: current.transactions.map((t) => t.id == txn.id ? txn : t).toList(),
+    );
+    state = AsyncData(_initial);
+  }
+
+  @override
+  Future<void> restoreTxn(Txn txn) async {
+    final current = state.valueOrNull ?? _initial;
+    if (!current.transactions.any((t) => t.id == txn.id)) {
+      _initial = current.copyWith(
+        transactions: [txn, ...current.transactions],
+      );
+      state = AsyncData(_initial);
+    }
+  }
 }
 
 void main() {
@@ -194,6 +223,70 @@ void main() {
     expect(find.text('Trek Bus Fare'), findsNothing);
   });
 
+  testWidgets('TodayScreen swipe right opens quick re-categorize sheet and re-categorizes', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const TodayScreen()));
+    await tester.pumpAndSettle();
+
+    // Swipe right on 'Canteen Thali'
+    await tester.drag(find.text('Canteen Thali'), const Offset(300, 0));
+    await tester.pumpAndSettle();
+
+    // Quick category bottom sheet appears
+    expect(
+      find.descendant(of: find.byType(BottomSheet), matching: find.text('Re-categorize')),
+      findsOneWidget,
+    );
+    expect(find.text('Canteen Thali · ₹40'), findsOneWidget);
+
+    // Tap 'Snacks' category in sheet
+    final snacksOption = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.text('Snacks'),
+    );
+    expect(snacksOption, findsOneWidget);
+    await tester.tap(snacksOption);
+    await tester.pumpAndSettle();
+
+    // Feedback toast is shown
+    expect(find.text('Moved to Snacks'), findsOneWidget);
+  });
+
+  testWidgets('TodayScreen swipe left deletes transaction with UNDO option', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const TodayScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Canteen Thali'), findsOneWidget);
+
+    // Swipe left to dismiss and delete
+    await tester.drag(find.text('Canteen Thali'), const Offset(-400, 0));
+    await tester.pumpAndSettle();
+
+    // Canteen Thali is deleted from view
+    expect(find.text('Canteen Thali'), findsNothing);
+    expect(find.text('UNDO'), findsOneWidget);
+
+    // Tap UNDO
+    await tester.tap(find.text('UNDO'));
+    await tester.pumpAndSettle();
+
+    // Transaction is restored
+    expect(find.text('Canteen Thali'), findsOneWidget);
+  });
+
   testWidgets('OutingsScreen renders outings card with extra total and items', (tester) async {
     await tester.pumpWidget(_wrap(const OutingsScreen()));
     await tester.pumpAndSettle();
@@ -240,7 +333,7 @@ void main() {
     expect(find.text('Settle Up'), findsWidgets);
   });
 
-  testWidgets('TodayScreen renders pending Slice transactions banner and opens review sheet', (tester) async {
+  testWidgets('AppShell renders pending Slice transactions badge in AppBar and opens review sheet', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;
     addTearDown(() {
@@ -275,15 +368,15 @@ void main() {
       ],
     );
 
-    await tester.pumpWidget(_wrap(const TodayScreen(), ledger: sample));
+    await tester.pumpWidget(_wrap(const AppShell(), ledger: sample));
     await tester.pumpAndSettle();
 
-    // Verify presence of Slice Transaction banner
-    expect(find.text('1 Slice Transaction'), findsOneWidget);
-    expect(find.textContaining('Ramesh Canteen · ₹240 · Tap to review'), findsOneWidget);
+    // Verify presence of Slice inbox pill in AppBar
+    expect(find.byIcon(Icons.inbox_outlined), findsOneWidget);
+    expect(find.text('1 new'), findsOneWidget);
 
-    // Tap the banner to open the review sheet
-    await tester.tap(find.text('1 Slice Transaction'));
+    // Tap the inbox pill to open the review sheet
+    await tester.tap(find.byIcon(Icons.inbox_outlined));
     await tester.pumpAndSettle();
 
     // Verify sheet content

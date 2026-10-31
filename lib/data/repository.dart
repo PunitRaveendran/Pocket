@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/dates.dart';
+import '../core/keystore_service.dart';
 import '../core/money.dart';
 import 'database.dart';
 import 'models.dart';
@@ -132,15 +133,56 @@ class PocketRepository {
     final db = await _db.db;
     await _ensureSeed(db);
 
-    final dedRows = await db.query(
-      'fixed_deductions',
-      where: 'deleted_at IS NULL',
-      orderBy: 'title ASC',
-    );
-    final deductions = dedRows.map(_deductionFromRow).toList();
+    final results = await Future.wait([
+      db.query(
+        'fixed_deductions',
+        where: 'deleted_at IS NULL',
+        orderBy: 'title ASC',
+      ),
+      db.query('settings'),
+      db.query('categories', orderBy: 'sort_order ASC'),
+      db.query(
+        'outings',
+        where: 'deleted_at IS NULL',
+        orderBy: 'local_date DESC, title ASC',
+      ),
+      db.query(
+        'txns',
+        where: 'deleted_at IS NULL',
+        orderBy: 'occurred_at DESC',
+      ),
+      db.query(
+        'friend_splits',
+        where: 'deleted_at IS NULL',
+        orderBy: 'occurred_at DESC',
+      ),
+      db.query(
+        'pending_inbox',
+        where: 'status = ?',
+        whereArgs: ['pending'],
+        orderBy: 'occurred_at DESC',
+      ),
+    ]);
 
-    final settingRows = await db.query('settings');
+    final dedRows = results[0];
+    final settingRows = results[1];
+    final catRows = results[2];
+    final outingRows = results[3];
+    final txnRows = results[4];
+    final splitRows = results[5];
+    final inboxRows = results[6];
+
+    final deductions = dedRows.map(_deductionFromRow).toList();
     final map = {for (final r in settingRows) r['key'] as String: r['value'] as String};
+
+    String appPassword = '';
+    final encPassword = map['email_sync_app_password_enc'];
+    if (encPassword != null && encPassword.isNotEmpty) {
+      appPassword = await KeystoreService.instance.decrypt(encPassword);
+    } else if (map['email_sync_app_password'] != null) {
+      appPassword = map['email_sync_app_password']!;
+    }
+
     final settings = Settings(
       stipendPaise: int.parse(map['stipend_paise'] ?? '${Settings.defaults.stipendPaise}'),
       cycleStartDay: int.parse(map['cycle_start_day'] ?? '${Settings.defaults.cycleStartDay}'),
@@ -157,13 +199,12 @@ class PocketRepository {
           : (map['app_theme_mode'] == 'light' ? AppThemeMode.light : AppThemeMode.system),
       rolloverUnspent: map['rollover_unspent'] != '0',
       emailSyncAddress: map['email_sync_address'] ?? '',
-      emailSyncAppPassword: map['email_sync_app_password'] ?? '',
+      emailSyncAppPassword: appPassword,
       emailSyncSender: map['email_sync_sender'] ?? 'noreply@slice.bank.in',
       emailSyncEnabled: map['email_sync_enabled'] == '1',
       emailSyncLastSyncedMs: int.tryParse(map['email_sync_last_synced_ms'] ?? ''),
     );
 
-    final catRows = await db.query('categories', orderBy: 'sort_order ASC');
     final categories = catRows
         .map(
           (r) => Category(
@@ -176,11 +217,6 @@ class PocketRepository {
         )
         .toList();
 
-    final outingRows = await db.query(
-      'outings',
-      where: 'deleted_at IS NULL',
-      orderBy: 'local_date DESC, title ASC',
-    );
     final outings = outingRows
         .map(
           (r) => Outing(
@@ -192,26 +228,8 @@ class PocketRepository {
         )
         .toList();
 
-    final txnRows = await db.query(
-      'txns',
-      where: 'deleted_at IS NULL',
-      orderBy: 'occurred_at DESC',
-    );
     final txns = txnRows.map(_txnFromRow).toList();
-
-    final splitRows = await db.query(
-      'friend_splits',
-      where: 'deleted_at IS NULL',
-      orderBy: 'occurred_at DESC',
-    );
     final splits = splitRows.map(_splitFromRow).toList();
-
-    final inboxRows = await db.query(
-      'pending_inbox',
-      where: 'status = ?',
-      whereArgs: ['pending'],
-      orderBy: 'occurred_at DESC',
-    );
     final inbox = inboxRows.map(_pendingFromRow).toList();
 
     return Ledger(
@@ -243,7 +261,14 @@ class PocketRepository {
     await put('app_theme_mode', s.appThemeMode.name);
     await put('rollover_unspent', s.rolloverUnspent ? '1' : '0');
     await put('email_sync_address', s.emailSyncAddress);
-    await put('email_sync_app_password', s.emailSyncAppPassword);
+    if (s.emailSyncAppPassword.isNotEmpty) {
+      final encrypted = await KeystoreService.instance.encrypt(s.emailSyncAppPassword);
+      await put('email_sync_app_password_enc', encrypted);
+      await db.delete('settings', where: 'key = ?', whereArgs: ['email_sync_app_password']);
+    } else {
+      await put('email_sync_app_password_enc', '');
+      await db.delete('settings', where: 'key = ?', whereArgs: ['email_sync_app_password']);
+    }
     await put('email_sync_sender', s.emailSyncSender);
     await put('email_sync_enabled', s.emailSyncEnabled ? '1' : '0');
     if (s.emailSyncLastSyncedMs != null) {
@@ -371,6 +396,23 @@ class PocketRepository {
       {'deleted_at': DateTime.now().millisecondsSinceEpoch},
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<void> restoreTxn(Txn txn) async {
+    if (_isInMemory) {
+      if (!_webTxns.any((t) => t.id == txn.id)) {
+        _webTxns.insert(0, txn);
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.update(
+      'txns',
+      {'deleted_at': null},
+      where: 'id = ?',
+      whereArgs: [txn.id],
     );
   }
 
@@ -1171,12 +1213,17 @@ class PocketRepository {
     Bucket bucket = Bucket.daily,
     String? outingId,
     String? note,
+    String? merchant,
   }) async {
+    final effectiveMerchant = (merchant != null && merchant.trim().isNotEmpty)
+        ? merchant.trim()
+        : pending.merchant;
+
     final txn = await addTxn(
       direction: pending.direction,
       amountPaise: pending.amountPaise,
       localDate: pending.localDate,
-      merchant: pending.merchant,
+      merchant: effectiveMerchant,
       categoryId: categoryId,
       bucket: bucket,
       outingId: outingId,

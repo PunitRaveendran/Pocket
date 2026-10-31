@@ -71,23 +71,60 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     final t = TokenScope.of(context);
-    final ledger = ref.watch(ledgerProvider).valueOrNull;
-    final pendingCount = ledger?.pendingInbox.length ?? 0;
+    final pendingCount = ref.watch(
+      ledgerProvider.select((a) => a.valueOrNull?.pendingInbox.length ?? 0),
+    );
 
     return Scaffold(
       backgroundColor: t.paper,
       appBar: AppBar(
+        toolbarHeight: 48,
         title: Text(_titles[_index]),
         actions: [
           if (pendingCount > 0)
-            IconButton(
-              tooltip: '$pendingCount pending Slice transaction${pendingCount > 1 ? "s" : ""}',
-              onPressed: () => showPendingInboxSheet(context),
-              icon: Badge(
-                label: Text('$pendingCount'),
-                backgroundColor: t.accent,
-                textColor: Colors.white,
-                child: Icon(Icons.bolt_rounded, color: t.accent, size: 22),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Tooltip(
+                  message: '$pendingCount pending Slice transaction${pendingCount > 1 ? "s" : ""}',
+                  child: InkWell(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      showPendingInboxSheet(context);
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: t.accentTint,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: t.accent.withValues(alpha: 0.25),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.inbox_outlined,
+                            size: 14,
+                            color: t.accent,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '$pendingCount new',
+                            style: TypeScale.caption(t.accent).copyWith(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                              height: 1.1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           IconButton(
@@ -116,44 +153,50 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
           InsightsScreen(),
         ],
       ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Hairline(),
-          NavigationBar(
-            selectedIndex: _index,
-            height: 64,
-            backgroundColor: t.paper,
-            indicatorColor: t.accentTint,
-            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-            onDestinationSelected: (i) {
-              HapticFeedback.selectionClick();
-              setState(() => _index = i);
-            },
-            destinations: [
-              NavigationDestination(
-                icon: Icon(Icons.today_outlined, color: t.inkSoft),
-                selectedIcon: Icon(Icons.today_outlined, color: t.accent),
-                label: Copy.today,
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.group_outlined, color: t.inkSoft),
-                selectedIcon: Icon(Icons.group_outlined, color: t.accent),
-                label: Copy.splits,
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.directions_walk_outlined, color: t.inkSoft),
-                selectedIcon: Icon(Icons.directions_walk_outlined, color: t.accent),
-                label: Copy.outings,
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.bar_chart_outlined, color: t.inkSoft),
-                selectedIcon: Icon(Icons.bar_chart_outlined, color: t.accent),
-                label: Copy.insights,
+      bottomNavigationBar: Container(
+        color: t.paper,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Hairline(),
+              NavigationBar(
+                selectedIndex: _index,
+                height: 64,
+                backgroundColor: t.paper,
+                indicatorColor: t.accentTint,
+                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                onDestinationSelected: (i) {
+                  HapticFeedback.selectionClick();
+                  setState(() => _index = i);
+                },
+                destinations: [
+                  NavigationDestination(
+                    icon: Icon(Icons.today_outlined, color: t.inkSoft),
+                    selectedIcon: Icon(Icons.today_outlined, color: t.accent),
+                    label: Copy.today,
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.group_outlined, color: t.inkSoft),
+                    selectedIcon: Icon(Icons.group_outlined, color: t.accent),
+                    label: Copy.splits,
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.directions_walk_outlined, color: t.inkSoft),
+                    selectedIcon: Icon(Icons.directions_walk_outlined, color: t.accent),
+                    label: Copy.outings,
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.bar_chart_outlined, color: t.inkSoft),
+                    selectedIcon: Icon(Icons.bar_chart_outlined, color: t.accent),
+                    label: Copy.insights,
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }

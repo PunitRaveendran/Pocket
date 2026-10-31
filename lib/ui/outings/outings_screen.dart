@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -19,12 +20,23 @@ class OutingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = TokenScope.of(context);
-    final async = ref.watch(ledgerProvider);
+    final async = ref.watch(
+      ledgerProvider.select(
+        (a) => a.whenData((l) => (l.settings, l.outings, l.transactions)),
+      ),
+    );
 
     return async.when(
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Center(child: Text('$e')),
-      data: (ledger) {
+      data: (data) {
+        final (settings, outings, transactions) = data;
+        final ledger = Ledger(
+          settings: settings,
+          categories: const [],
+          transactions: transactions,
+          outings: outings,
+        );
         final today = LocalDate.today();
         final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
         final extra = extraThisCycle(ledger, cycle);
@@ -46,16 +58,23 @@ class OutingsScreen extends ConsumerWidget {
                     const SizedBox(height: Space.x6),
                     Semantics(
                       label: '${Money.spokenRupees(extra)} ${Copy.extraThisMonth}',
-                      child: Text(
-                        Money.formatPaise(extra, hide: hide),
-                        style: TypeScale.figure(t.ink),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          Money.formatPaise(extra, hide: hide),
+                          style: TypeScale.figure(t.ink),
+                        ),
                       ),
                     ),
                     Text(Copy.extraThisMonth, style: TypeScale.body(t.inkSoft)),
                     const SizedBox(height: Space.x6),
                     PrimaryButton(
                       label: Copy.addOuting,
-                      onPressed: () => showOutingSheet(context),
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        showOutingSheet(context);
+                      },
                     ),
                   ],
                 ),

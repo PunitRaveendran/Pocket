@@ -28,7 +28,16 @@ class PendingInboxSheet extends ConsumerStatefulWidget {
 
 class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
   final Map<String, String> _selectedCategories = {};
+  final Map<String, TextEditingController> _whatForControllers = {};
   bool _isSyncing = false;
+
+  @override
+  void dispose() {
+    for (final c in _whatForControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -205,6 +214,11 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
 
     final dateFormatted = DateFormat('d MMM, h:mm a').format(item.occurredAt);
 
+    final noteController = _whatForControllers.putIfAbsent(
+      item.id,
+      () => TextEditingController(),
+    );
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -272,7 +286,7 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
           Row(
             children: [
               Text(
-                'What was this for?',
+                'Category',
                 style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
               ),
               if (hasMemoryMatch) ...[
@@ -287,38 +301,75 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
             ],
           ),
           const SizedBox(height: 8),
-          // Category chips
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: categories.map((cat) {
-              final isSelected = cat.id == selectedCatId;
-              return ChoiceChip(
-                label: Text(cat.name),
-                selected: isSelected,
-                selectedColor: t.accentTint,
-                backgroundColor: t.card,
-                labelStyle: TypeScale.caption(isSelected ? t.accent : t.ink).copyWith(
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(
-                    color: isSelected ? t.accent : t.rule,
-                    width: isSelected ? 1.5 : 1,
+          // Category chips in single-line horizontal scroll
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                for (final cat in categories) ...[
+                  ChoiceChip(
+                    label: Text(cat.name),
+                    selected: cat.id == selectedCatId,
+                    selectedColor: t.accentTint,
+                    backgroundColor: t.card,
+                    labelStyle: TypeScale.caption(cat.id == selectedCatId ? t.accent : t.ink).copyWith(
+                      fontWeight: cat.id == selectedCatId ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(
+                        color: cat.id == selectedCatId ? t.accent : t.rule,
+                        width: cat.id == selectedCatId ? 1.5 : 1,
+                      ),
+                    ),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _selectedCategories[item.id] = cat.id;
+                        });
+                      }
+                    },
                   ),
-                ),
-                onSelected: (selected) {
-                  if (selected) {
-                    setState(() {
-                      _selectedCategories[item.id] = cat.id;
-                    });
-                  }
-                },
-              );
-            }).toList(),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          Text(
+            'What was this for?',
+            style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          // "What was this for?" Input field
+          TextField(
+            controller: noteController,
+            style: TypeScale.body(t.ink).copyWith(fontSize: 14),
+            cursorColor: t.accent,
+            decoration: InputDecoration(
+              hintText: 'e.g. Canteen lunch, Xerox, Chai',
+              hintStyle: TypeScale.caption(t.inkSoft),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              filled: true,
+              fillColor: t.card,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                borderSide: BorderSide(color: t.rule),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                borderSide: BorderSide(color: t.rule),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                borderSide: BorderSide(color: t.accent),
+              ),
+              prefixIcon: Icon(Icons.edit_note_rounded, size: 20, color: t.inkSoft),
+            ),
+          ),
+          const SizedBox(height: 14),
           // Decision Actions: "Just Me" vs "Split with Friends" vs "Dismiss"
           if (item.direction == Direction.credit)
             Row(
@@ -328,11 +379,14 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                   child: FilledButton.icon(
                     onPressed: () => _approveTopUp(item),
                     icon: const Icon(Icons.savings_outlined, size: 16),
-                    label: const Text('Add to Balance'),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Add to Balance'),
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: t.accent,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(Space.controlRadius),
                       ),
@@ -345,10 +399,13 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                   child: OutlinedButton.icon(
                     onPressed: () => _settleSplitFromInbox(item),
                     icon: Icon(Icons.people_outline_rounded, size: 16, color: t.accent),
-                    label: Text('Settle Split', style: TextStyle(color: t.accent)),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Settle Split', style: TextStyle(color: t.accent)),
+                    ),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: t.accent),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(Space.controlRadius),
                       ),
@@ -372,11 +429,14 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                   child: FilledButton.icon(
                     onPressed: () => _approveJustMe(item, selectedCatId),
                     icon: const Icon(Icons.person_rounded, size: 16),
-                    label: const Text('Just me'),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Just me'),
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: t.ink,
                       foregroundColor: t.paper,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(Space.controlRadius),
                       ),
@@ -390,10 +450,13 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                   child: OutlinedButton.icon(
                     onPressed: () => _splitWithFriends(item, selectedCatId),
                     icon: Icon(Icons.people_alt_outlined, size: 16, color: t.accent),
-                    label: Text('Split with friends', style: TextStyle(color: t.accent)),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Split with friends', style: TextStyle(color: t.accent)),
+                    ),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: t.accent),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(Space.controlRadius),
                       ),
@@ -415,12 +478,14 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
   }
 
   Future<void> _approveTopUp(PendingTransaction item) async {
+    final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
+    final note = customWhatFor.isNotEmpty ? customWhatFor : 'Stipend Top-Up via Slice';
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(
             item,
             categoryId: 'income',
             bucket: Bucket.daily,
-            note: 'Stipend Top-Up via Slice',
+            note: note,
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -514,17 +579,24 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
   }
 
   Future<void> _approveJustMe(PendingTransaction item, String categoryId) async {
+    final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : item.merchant;
+    final note = customWhatFor.isNotEmpty
+        ? (item.merchant != customWhatFor ? 'Slice · ${item.merchant}' : 'Slice UPI')
+        : 'Slice UPI';
+
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(
             item,
             categoryId: categoryId,
             bucket: Bucket.daily,
-            note: 'Slice UPI',
+            merchant: effectiveMerchant,
+            note: note,
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Recorded ₹${item.amountPaise ~/ 100} for ${item.merchant}'),
+            content: Text('Recorded ₹${item.amountPaise ~/ 100} for $effectiveMerchant'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -539,10 +611,12 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
   }
 
   Future<void> _splitWithFriends(PendingTransaction item, String categoryId) async {
+    final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : item.merchant;
     await showBillSplitSheet(
       context,
       totalAmountPaise: item.amountPaise,
-      merchant: item.merchant,
+      merchant: effectiveMerchant,
       initialDate: item.localDate,
       initialCategoryId: categoryId,
       pendingInboxId: item.id,

@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -263,7 +264,7 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
       padding: EdgeInsets.only(bottom: bottom),
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(Space.margin, Space.x4, Space.margin, Space.x6),
+          padding: const EdgeInsets.fromLTRB(Space.margin, Space.x3, Space.margin, Space.x4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -430,25 +431,33 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                 ),
               ],
 
-              const SizedBox(height: Space.x4),
+              const SizedBox(height: Space.x3),
               AmountDisplay(value: _amount),
-              const SizedBox(height: Space.x4),
+              const SizedBox(height: Space.x3),
 
               // Form fields based on selection
               if (!isCredit) ...[
-                // Category Chips for Expense
-                Wrap(
-                  spacing: Space.x2,
-                  runSpacing: Space.x2,
-                  children: [
-                    for (final c in expenseCats)
-                      LedgerChip(
-                        label: c.name,
-                        icon: categoryIcon(c.icon),
-                        selected: _categoryId == c.id,
-                        onTap: () => setState(() => _categoryId = c.id),
-                      ),
-                  ],
+                // Category Chips for Expense (one line, horizontally scrollable)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < expenseCats.length; i++) ...[
+                        LedgerChip(
+                          label: expenseCats[i].name,
+                          icon: categoryIcon(expenseCats[i].icon),
+                          selected: _categoryId == expenseCats[i].id,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _categoryId = expenseCats[i].id);
+                          },
+                        ),
+                        if (i < expenseCats.length - 1)
+                          const SizedBox(width: Space.x2),
+                      ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: Space.x3),
                 TextField(
@@ -456,7 +465,7 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                   style: TypeScale.body(t.ink),
                   cursorColor: t.accent,
                   decoration: InputDecoration(
-                    hintText: Copy.merchantHint,
+                    hintText: 'What was this for? (e.g. Canteen, Xerox, Chai)',
                     hintStyle: TypeScale.body(t.inkSoft),
                     enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
                     focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.accent)),
@@ -740,18 +749,26 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                   ),
                 ],
               ] else if (_receivedType == ReceivedType.refund) ...[
-                Wrap(
-                  spacing: Space.x2,
-                  runSpacing: Space.x2,
-                  children: [
-                    for (final c in expenseCats)
-                      LedgerChip(
-                        label: c.name,
-                        icon: categoryIcon(c.icon),
-                        selected: _categoryId == c.id,
-                        onTap: () => setState(() => _categoryId = c.id),
-                      ),
-                  ],
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < expenseCats.length; i++) ...[
+                        LedgerChip(
+                          label: expenseCats[i].name,
+                          icon: categoryIcon(expenseCats[i].icon),
+                          selected: _categoryId == expenseCats[i].id,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _categoryId = expenseCats[i].id);
+                          },
+                        ),
+                        if (i < expenseCats.length - 1)
+                          const SizedBox(width: Space.x2),
+                      ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: Space.x3),
                 TextField(
@@ -769,12 +786,12 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                 ),
               ],
 
-              const SizedBox(height: Space.x4),
+              const SizedBox(height: Space.x3),
               AmountPad(
                 value: _amount,
                 onChanged: (v) => setState(() => _amount = v),
               ),
-              const SizedBox(height: Space.x4),
+              const SizedBox(height: Space.x3),
               PrimaryButton(
                 label: !isCredit
                     ? Copy.save
@@ -814,7 +831,7 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
         },
         borderRadius: BorderRadius.circular(Space.controlRadius - 2),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
           decoration: BoxDecoration(
             color: isSelected ? t.card : Colors.transparent,
             borderRadius: BorderRadius.circular(Space.controlRadius - 2),
@@ -829,12 +846,15 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                 : null,
           ),
           alignment: Alignment.center,
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TypeScale.caption(isSelected ? t.accent : t.inkSoft).copyWith(
-              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              fontSize: 11,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TypeScale.caption(isSelected ? t.accent : t.inkSoft).copyWith(
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 11,
+              ),
             ),
           ),
         ),

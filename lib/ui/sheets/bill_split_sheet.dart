@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
@@ -10,7 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/chips.dart';
-import '../widgets/hairline.dart';
+
 import '../widgets/primary_button.dart';
 
 Future<bool?> showBillSplitSheet(
@@ -324,20 +325,27 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
     final ledger = ref.watch(ledgerProvider).valueOrNull;
     final cats = (ledger?.categories ?? []).where((c) => c.id != 'income').toList();
 
-    // Known past friends for quick tap chips
-    final pastFriends = <String>{};
+    // Known past friends for quick tap chips (deduplicated case-insensitively)
+    final pastFriendsMap = <String, String>{};
     if (ledger != null) {
       for (final s in ledger.friendSplits) {
-        if (s.friendName.trim().isNotEmpty) pastFriends.add(s.friendName.trim());
+        final trimmed = s.friendName.trim();
+        if (trimmed.isNotEmpty) {
+          final lower = trimmed.toLowerCase();
+          if (!pastFriendsMap.containsKey(lower)) {
+            pastFriendsMap[lower] = trimmed[0].toUpperCase() + (trimmed.length > 1 ? trimmed.substring(1) : '');
+          }
+        }
       }
     }
+    final pastFriends = pastFriendsMap.values.toList();
 
     final parsedNames = _parsedFriendNames();
     final peopleCount = _computePeopleCount();
     final friendCount = peopleCount - 1;
     final mySharePaise = _computeMySharePaise();
     final friendsTotalPaise = _computeFriendsTotalPaise();
-    final perFriendPaise = friendCount > 0 ? friendsTotalPaise ~/ friendCount : 0;
+
 
     return Container(
       constraints: BoxConstraints(
@@ -516,11 +524,13 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                       if (_isEqualSplit) ...[
                         Row(
                           children: [
-                            Text(
-                              'How many people total?',
-                              style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w600),
+                            Expanded(
+                              child: Text(
+                                'People total',
+                                style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w600),
+                              ),
                             ),
-                            const Spacer(),
+                            const SizedBox(width: Space.x2),
                             Container(
                               decoration: BoxDecoration(
                                 color: t.card,
@@ -531,9 +541,12 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
+                                    padding: const EdgeInsets.all(6),
+                                    constraints: const BoxConstraints(),
                                     icon: const Icon(Icons.remove, size: 18),
                                     onPressed: _stepperCount > 2
                                         ? () {
+                                            HapticFeedback.selectionClick();
                                             setState(() {
                                               _stepperCount--;
                                               _updateMyShareDefault();
@@ -542,15 +555,21 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                                         : null,
                                   ),
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
                                     child: Text(
                                       '$peopleCount ($friendCount friend${friendCount > 1 ? "s" : ""} + You)',
-                                      style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w700),
+                                      style: TypeScale.caption(t.ink).copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
                                     ),
                                   ),
                                   IconButton(
+                                    padding: const EdgeInsets.all(6),
+                                    constraints: const BoxConstraints(),
                                     icon: const Icon(Icons.add, size: 18),
                                     onPressed: () {
+                                      HapticFeedback.selectionClick();
                                       setState(() {
                                         _stepperCount = peopleCount + 1;
                                         _updateMyShareDefault();
@@ -764,134 +783,100 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: Space.x4),
 
-                      // Dynamic Live Breakdown Card
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: t.card,
-                          border: Border.all(color: t.accent.withValues(alpha: 0.4), width: 1.5),
-                          borderRadius: BorderRadius.circular(Space.cardRadius),
-                        ),
-                        child: Column(
-                          children: [
-                            // User's Share
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(color: t.ink, shape: BoxShape.circle),
-                                  child: const Icon(Icons.person, size: 14, color: Colors.white),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Your Personal Share',
-                                        style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w700),
-                                      ),
-                                      Text(
-                                        'Charged to Today’s spending allowance',
-                                        style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
-                                      ),
-                                    ],
+                      const SizedBox(height: Space.x3),
+
+                      // Compact breakdown row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: t.card,
+                                border: Border.all(color: t.rule),
+                                borderRadius: BorderRadius.circular(Space.controlRadius),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.person, size: 15, color: t.ink),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'You',
+                                      style: TypeScale.caption(t.ink).copyWith(fontWeight: FontWeight.w600),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                ),
-                                Text(
-                                  Money.formatPaise(mySharePaise),
-                                  style: TypeScale.title(t.ink).copyWith(fontSize: 17, fontWeight: FontWeight.w800),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Hairline(),
-                            const SizedBox(height: 12),
-                            // Friends' Split Section
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(color: t.accent, shape: BoxShape.circle),
-                                  child: const Icon(Icons.group, size: 14, color: Colors.white),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _isEqualSplit
-                                            ? 'Friends’ Debt ($friendCount friend${friendCount > 1 ? "s" : ""})'
-                                            : 'Friends’ Debt (${_customFriends.length} friend${_customFriends.length > 1 ? "s" : ""})',
-                                        style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w700),
-                                      ),
-                                      Text(
-                                        _isEqualSplit
-                                            ? (friendCount > 0
-                                                ? '${Money.formatPaise(perFriendPaise)} each · Tracked in Splits'
-                                                : 'Tracked in Splits section')
-                                            : 'Custom amounts · Tracked in Splits',
-                                        style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
-                                      ),
-                                    ],
+                                  Text(
+                                    Money.formatPaise(mySharePaise),
+                                    style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w800, fontSize: 14),
                                   ),
-                                ),
-                                Text(
-                                  Money.formatPaise(friendsTotalPaise),
-                                  style: TypeScale.title(t.accent).copyWith(fontSize: 17, fontWeight: FontWeight.w800),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: t.accentTint,
+                                border: Border.all(color: t.accent.withValues(alpha: 0.3)),
+                                borderRadius: BorderRadius.circular(Space.controlRadius),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.group, size: 15, color: t.accent),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      _isEqualSplit
+                                          ? '$friendCount friend${friendCount > 1 ? "s" : ""}'
+                                          : '${_customFriends.length} friend${_customFriends.length > 1 ? "s" : ""}',
+                                      style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(
+                                    Money.formatPaise(friendsTotalPaise),
+                                    style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w800, fontSize: 14),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: Space.x4),
+                      const SizedBox(height: Space.x3),
 
-                      // Category selection
+
+                      // Category selection (single-line horizontal scroll)
                       Text(
-                        'Category for your share',
+                        'Category',
                         style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: Space.x2),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: cats.map((cat) {
-                          final isSelected = cat.id == _categoryId;
-                          return ChoiceChip(
-                            label: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  categoryIcon(cat.icon),
-                                  size: 14,
-                                  color: isSelected ? t.accent : t.inkSoft,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(cat.name),
-                              ],
-                            ),
-                            selected: isSelected,
-                            selectedColor: t.accentTint,
-                            backgroundColor: t.card,
-                            labelStyle: TypeScale.caption(isSelected ? t.accent : t.ink).copyWith(
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              side: BorderSide(
-                                color: isSelected ? t.accent : t.rule,
-                                width: isSelected ? 1.5 : 1,
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          children: [
+                            for (var i = 0; i < cats.length; i++) ...[
+                              LedgerChip(
+                                label: cats[i].name,
+                                icon: categoryIcon(cats[i].icon),
+                                selected: cats[i].id == _categoryId,
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _categoryId = cats[i].id);
+                                },
                               ),
-                            ),
-                            onSelected: (selected) {
-                              if (selected) setState(() => _categoryId = cat.id);
-                            },
-                          );
-                        }).toList(),
+                              if (i < cats.length - 1)
+                                const SizedBox(width: 8),
+                            ],
+                          ],
+                        ),
                       ),
                       const SizedBox(height: Space.x3),
 

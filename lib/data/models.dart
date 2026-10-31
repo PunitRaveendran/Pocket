@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show listEquals;
+
 import '../core/dates.dart';
 
 enum Direction { debit, credit }
@@ -18,6 +20,20 @@ class Category {
   final String icon;
   final bool isSystem;
   final int sortOrder;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Category &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          icon == other.icon &&
+          isSystem == other.isSystem &&
+          sortOrder == other.sortOrder;
+
+  @override
+  int get hashCode => Object.hash(id, name, icon, isSystem, sortOrder);
 }
 
 class Outing {
@@ -32,6 +48,19 @@ class Outing {
   final String title;
   final LocalDate localDate;
   final String note;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Outing &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          title == other.title &&
+          localDate == other.localDate &&
+          note == other.note;
+
+  @override
+  int get hashCode => Object.hash(id, title, localDate, note);
 }
 
 class Txn {
@@ -62,6 +91,62 @@ class Txn {
   int get signedPaise => direction == Direction.debit ? amountPaise : -amountPaise;
 
   DateTime get occurredAt => DateTime.fromMillisecondsSinceEpoch(occurredAtMs);
+
+  Txn copyWith({
+    String? id,
+    int? amountPaise,
+    Direction? direction,
+    int? occurredAtMs,
+    LocalDate? localDate,
+    String? merchant,
+    String? categoryId,
+    Bucket? bucket,
+    String? outingId,
+    String? note,
+  }) {
+    return Txn(
+      id: id ?? this.id,
+      amountPaise: amountPaise ?? this.amountPaise,
+      direction: direction ?? this.direction,
+      occurredAtMs: occurredAtMs ?? this.occurredAtMs,
+      localDate: localDate ?? this.localDate,
+      merchant: merchant ?? this.merchant,
+      categoryId: categoryId ?? this.categoryId,
+      bucket: bucket ?? this.bucket,
+      outingId: outingId ?? this.outingId,
+      note: note ?? this.note,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Txn &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          amountPaise == other.amountPaise &&
+          direction == other.direction &&
+          occurredAtMs == other.occurredAtMs &&
+          localDate == other.localDate &&
+          merchant == other.merchant &&
+          categoryId == other.categoryId &&
+          bucket == other.bucket &&
+          outingId == other.outingId &&
+          note == other.note;
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        amountPaise,
+        direction,
+        occurredAtMs,
+        localDate,
+        merchant,
+        categoryId,
+        bucket,
+        outingId,
+        note,
+      );
 }
 
 enum PacingMode { daily, weekly }
@@ -120,6 +205,34 @@ class FriendSplit {
       settledAtMs: settledAtMs ?? this.settledAtMs,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FriendSplit &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          friendName == other.friendName &&
+          amountPaise == other.amountPaise &&
+          direction == other.direction &&
+          occurredAtMs == other.occurredAtMs &&
+          localDate == other.localDate &&
+          note == other.note &&
+          isSettled == other.isSettled &&
+          settledAtMs == other.settledAtMs;
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        friendName,
+        amountPaise,
+        direction,
+        occurredAtMs,
+        localDate,
+        note,
+        isSettled,
+        settledAtMs,
+      );
 }
 
 enum LeftoverPolicy { dynamicDistribute, outingsPiggyBank }
@@ -152,6 +265,19 @@ class FixedDeduction {
       isEnabled: isEnabled ?? this.isEnabled,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FixedDeduction &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          title == other.title &&
+          amountPaise == other.amountPaise &&
+          isEnabled == other.isEnabled;
+
+  @override
+  int get hashCode => Object.hash(id, title, amountPaise, isEnabled);
 }
 
 enum InboxStatus { pending, approved, dismissed }
@@ -208,6 +334,36 @@ class PendingTransaction {
       status: status ?? this.status,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PendingTransaction &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          amountPaise == other.amountPaise &&
+          direction == other.direction &&
+          occurredAtMs == other.occurredAtMs &&
+          localDate == other.localDate &&
+          merchant == other.merchant &&
+          suggestedCategoryId == other.suggestedCategoryId &&
+          rawSource == other.rawSource &&
+          messageId == other.messageId &&
+          status == other.status;
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        amountPaise,
+        direction,
+        occurredAtMs,
+        localDate,
+        merchant,
+        suggestedCategoryId,
+        rawSource,
+        messageId,
+        status,
+      );
 }
 
 class Settings {
@@ -287,6 +443,46 @@ class Settings {
     );
   }
 
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Settings &&
+          runtimeType == other.runtimeType &&
+          stipendPaise == other.stipendPaise &&
+          cycleStartDay == other.cycleStartDay &&
+          hideAmounts == other.hideAmounts &&
+          onboarded == other.onboarded &&
+          pacingMode == other.pacingMode &&
+          leftoverPolicy == other.leftoverPolicy &&
+          biometricEnabled == other.biometricEnabled &&
+          appThemeMode == other.appThemeMode &&
+          rolloverUnspent == other.rolloverUnspent &&
+          emailSyncAddress == other.emailSyncAddress &&
+          emailSyncAppPassword == other.emailSyncAppPassword &&
+          emailSyncSender == other.emailSyncSender &&
+          emailSyncEnabled == other.emailSyncEnabled &&
+          emailSyncLastSyncedMs == other.emailSyncLastSyncedMs &&
+          listEquals(fixedDeductions, other.fixedDeductions);
+
+  @override
+  int get hashCode => Object.hash(
+        stipendPaise,
+        cycleStartDay,
+        hideAmounts,
+        onboarded,
+        pacingMode,
+        leftoverPolicy,
+        biometricEnabled,
+        appThemeMode,
+        rolloverUnspent,
+        emailSyncAddress,
+        emailSyncAppPassword,
+        emailSyncSender,
+        emailSyncEnabled,
+        emailSyncLastSyncedMs,
+        Object.hashAll(fixedDeductions),
+      );
+
   static const defaults = Settings(
     stipendPaise: 250000,
     cycleStartDay: 1,
@@ -347,5 +543,23 @@ class Ledger {
       if (o.id == id) return o;
     }
     return null;
+  }
+
+  Ledger copyWith({
+    Settings? settings,
+    List<Category>? categories,
+    List<Txn>? transactions,
+    List<Outing>? outings,
+    List<FriendSplit>? friendSplits,
+    List<PendingTransaction>? pendingInbox,
+  }) {
+    return Ledger(
+      settings: settings ?? this.settings,
+      categories: categories ?? this.categories,
+      transactions: transactions ?? this.transactions,
+      outings: outings ?? this.outings,
+      friendSplits: friendSplits ?? this.friendSplits,
+      pendingInbox: pendingInbox ?? this.pendingInbox,
+    );
   }
 }

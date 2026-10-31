@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/models.dart';
@@ -41,11 +42,29 @@ class PocketApp extends ConsumerWidget {
         theme: PocketTheme.of(Brightness.light),
         darkTheme: PocketTheme.of(Brightness.dark),
         themeMode: themeMode,
+        scrollBehavior: const PocketScrollBehavior(),
         builder: (context, child) {
           final mq = MediaQuery.of(context);
-          return MediaQuery(
-            data: mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1).clamp(1.0, 2.0))),
-            child: child ?? const SizedBox.shrink(),
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness:
+                  activeBrightness == Brightness.dark ? Brightness.light : Brightness.dark,
+              statusBarBrightness:
+                  activeBrightness == Brightness.dark ? Brightness.dark : Brightness.light,
+              systemNavigationBarColor: Colors.transparent,
+              systemNavigationBarDividerColor: Colors.transparent,
+              systemNavigationBarIconBrightness:
+                  activeBrightness == Brightness.dark ? Brightness.light : Brightness.dark,
+              systemNavigationBarContrastEnforced: false,
+              systemStatusBarContrastEnforced: false,
+            ),
+            child: MediaQuery(
+              data: mq.copyWith(
+                textScaler: mq.textScaler.clamp(minScaleFactor: 0.85, maxScaleFactor: 1.35),
+              ),
+              child: child ?? const SizedBox.shrink(),
+            ),
           );
         },
         home: ledger.when(

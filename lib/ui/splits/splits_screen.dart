@@ -59,18 +59,30 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
   @override
   Widget build(BuildContext context) {
     final t = TokenScope.of(context);
-    final async = ref.watch(ledgerProvider);
+    final async = ref.watch(
+      ledgerProvider.select(
+        (a) => a.whenData((l) => (l.friendSplits, l.settings.hideAmounts)),
+      ),
+    );
 
     return async.when(
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Center(child: Text('$e')),
-      data: (ledger) {
-        final splits = ledger.friendSplits;
-        final hide = ledger.settings.hideAmounts;
+      data: (data) {
+        final (splits, hide) = data;
 
-        final totalOwedToMe = ledger.totalOwedToMePaise;
-        final totalIOwe = ledger.totalIOwePaise;
-        final net = ledger.netFriendBalancePaise;
+        var totalOwedToMe = 0;
+        var totalIOwe = 0;
+        for (final s in splits) {
+          if (!s.isSettled) {
+            if (s.direction == SplitDirection.youAreOwed) {
+              totalOwedToMe += s.amountPaise;
+            } else {
+              totalIOwe += s.amountPaise;
+            }
+          }
+        }
+        final net = totalOwedToMe - totalIOwe;
 
         // Apply tab filter
         final filtered = splits.where((s) {
@@ -94,7 +106,10 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
             elevation: 2,
             icon: const Icon(Icons.add, size: 20),
             label: const Text('Add Split'),
-            onPressed: () => _onAddSplitPressed(context),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              _onAddSplitPressed(context);
+            },
           ),
           body: CustomScrollView(
             slivers: [
@@ -137,14 +152,21 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
                                   constraints: const BoxConstraints(),
                                   icon: Icon(Icons.calculate_outlined, color: t.inkSoft, size: 20),
                                   tooltip: 'Quick Group Split Calculator',
-                                  onPressed: () => _openGroupCalculator(context),
+                                  onPressed: () {
+                                    HapticFeedback.selectionClick();
+                                    _openGroupCalculator(context);
+                                  },
                                 ),
                               ],
                             ),
                             const SizedBox(height: Space.x2),
-                            Text(
-                              Money.formatPaise(net.abs(), hide: hide),
-                              style: TypeScale.figure(net > 0 ? t.accent : t.ink),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                Money.formatPaise(net.abs(), hide: hide),
+                                style: TypeScale.figure(net > 0 ? t.accent : t.ink),
+                              ),
                             ),
                             const SizedBox(height: Space.x3),
                             const Hairline(),
@@ -675,13 +697,16 @@ class _SplitsScreenState extends ConsumerState<SplitsScreen> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      Money.formatPaise(split.amountPaise, hide: hide),
-                      style: TypeScale.caption(
-                        split.isSettled
-                            ? t.inkSoft
-                            : (split.direction == SplitDirection.youAreOwed ? t.accent : t.ink),
-                      ).copyWith(fontWeight: FontWeight.w700),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        Money.formatPaise(split.amountPaise, hide: hide),
+                        style: TypeScale.caption(
+                          split.isSettled
+                              ? t.inkSoft
+                              : (split.direction == SplitDirection.youAreOwed ? t.accent : t.ink),
+                        ).copyWith(fontWeight: FontWeight.w700),
+                      ),
                     ),
                     if (!split.isSettled) ...[
                       const SizedBox(width: 8),
