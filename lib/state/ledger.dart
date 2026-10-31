@@ -47,6 +47,8 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
           listEquals(prev.friendSplits, loaded.friendSplits) ? prev.friendSplits : loaded.friendSplits;
       final inbox =
           listEquals(prev.pendingInbox, loaded.pendingInbox) ? prev.pendingInbox : loaded.pendingInbox;
+      final savedFriends =
+          listEquals(prev.savedFriends, loaded.savedFriends) ? prev.savedFriends : loaded.savedFriends;
 
       state = AsyncData(
         Ledger(
@@ -56,6 +58,7 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
           outings: outings,
           friendSplits: splits,
           pendingInbox: inbox,
+          savedFriends: savedFriends,
         ),
       );
     } else {
