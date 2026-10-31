@@ -93,6 +93,21 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> reorderCategories(List<String> orderedIds) async {
+    await _repo.reorderCategories(orderedIds);
+    await _reload();
+  }
+
+  Future<void> addFriend(String name) async {
+    await _repo.addFriend(name);
+    await _reload();
+  }
+
+  Future<void> deleteFriend(String name) async {
+    await _repo.deleteFriend(name);
+    await _reload();
+  }
+
   Future<void> addDailySpend({
     required int amountPaise,
     required String categoryId,

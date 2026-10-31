@@ -136,13 +136,7 @@ class _SplitSheetState extends ConsumerState<SplitSheet> {
     final t = TokenScope.of(context);
     final ledger = ref.watch(ledgerProvider).valueOrNull;
 
-    // Collect distinct existing friend names for autocomplete chips
-    final existingNames = <String>{};
-    if (ledger != null) {
-      for (final s in ledger.friendSplits) {
-        if (s.friendName.trim().isNotEmpty) existingNames.add(s.friendName.trim());
-      }
-    }
+    final existingNames = ledger?.allFriendSuggestions ?? const [];
 
     final isOwed = _direction == SplitDirection.youAreOwed;
 

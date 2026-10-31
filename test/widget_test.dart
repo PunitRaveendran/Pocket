@@ -308,7 +308,7 @@ void main() {
     await tester.pumpWidget(_wrap(const InsightsScreen()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Safe Daily Pace'), findsOneWidget);
+    expect(find.text('Monthly stipend'), findsOneWidget);
     expect(find.text('Visual Analytics'), findsOneWidget);
     expect(find.text('7-Day Bars'), findsOneWidget);
     expect(find.text('By category'), findsOneWidget);
@@ -411,5 +411,25 @@ void main() {
     expect(find.text('Overall: You get back'), findsOneWidget);
     expect(find.text('Add Split'), findsOneWidget);
   });
+
+  testWidgets('AppShell allows sliding horizontally to navigate between tabs', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const AppShell()));
+    await tester.pumpAndSettle();
+
+    // Swipe left on the screen (from Today to Splits)
+    await tester.drag(find.byType(PageView), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+
+    // Verify Splits screen is active
+    expect(find.text('Overall: You get back'), findsOneWidget);
+  });
 }
+
 

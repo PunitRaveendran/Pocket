@@ -510,6 +510,7 @@ class Ledger {
     required this.outings,
     this.friendSplits = const [],
     this.pendingInbox = const [],
+    this.savedFriends = const [],
   });
 
   final Settings settings;
@@ -518,8 +519,28 @@ class Ledger {
   final List<Outing> outings;
   final List<FriendSplit> friendSplits;
   final List<PendingTransaction> pendingInbox;
+  final List<String> savedFriends;
 
   List<Txn> get liveTxns => transactions;
+
+  /// Combined deduplicated friend names from both explicitly saved friends and past splits
+  List<String> get allFriendSuggestions {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final f in savedFriends) {
+      final t = f.trim();
+      if (t.isNotEmpty && seen.add(t.toLowerCase())) {
+        result.add(t);
+      }
+    }
+    for (final s in friendSplits) {
+      final t = s.friendName.trim();
+      if (t.isNotEmpty && seen.add(t.toLowerCase())) {
+        result.add(t);
+      }
+    }
+    return result;
+  }
 
   int get totalOwedToMePaise => friendSplits
       .where((s) => !s.isSettled && s.direction == SplitDirection.youAreOwed)
@@ -552,6 +573,7 @@ class Ledger {
     List<Outing>? outings,
     List<FriendSplit>? friendSplits,
     List<PendingTransaction>? pendingInbox,
+    List<String>? savedFriends,
   }) {
     return Ledger(
       settings: settings ?? this.settings,
@@ -560,6 +582,7 @@ class Ledger {
       outings: outings ?? this.outings,
       friendSplits: friendSplits ?? this.friendSplits,
       pendingInbox: pendingInbox ?? this.pendingInbox,
+      savedFriends: savedFriends ?? this.savedFriends,
     );
   }
 }

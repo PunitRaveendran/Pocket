@@ -24,12 +24,14 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver {
   int _index = 0;
   DateTime? _lastSyncAttempt;
+  late final PageController _pageController;
 
   static const _titles = [Copy.today, Copy.splits, Copy.outings, Copy.insights];
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _index);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAutoSync(force: true);
@@ -38,6 +40,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
   @override
   void dispose() {
+    _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -144,8 +147,13 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _index,
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (i) {
+          HapticFeedback.selectionClick();
+          setState(() => _index = i);
+        },
+        physics: const PageScrollPhysics(parent: BouncingScrollPhysics()),
         children: const [
           TodayScreen(),
           SplitsScreen(),
@@ -170,6 +178,11 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
                 onDestinationSelected: (i) {
                   HapticFeedback.selectionClick();
                   setState(() => _index = i);
+                  _pageController.animateToPage(
+                    i,
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                  );
                 },
                 destinations: [
                   NavigationDestination(

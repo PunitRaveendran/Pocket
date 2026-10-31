@@ -80,6 +80,7 @@ class BackupService {
             'settled_at_ms': s.settledAtMs,
           }
       ],
+      'saved_friends': ledger.savedFriends,
     };
 
     return const JsonEncoder.withIndent('  ').convert(data);
@@ -236,7 +237,18 @@ class BackupService {
         }
       }
 
-      // 7. Atomic Restore: All validations passed! Perform transactional wipe + restore
+      // 7. Pre-validate Saved Friends
+      final savedFriendsList = decoded['saved_friends'];
+      final savedFriends = <String>[];
+      if (savedFriendsList is List) {
+        for (final item in savedFriendsList) {
+          if (item is String && item.trim().isNotEmpty) {
+            savedFriends.add(item.trim());
+          }
+        }
+      }
+
+      // 8. Atomic Restore: All validations passed! Perform transactional wipe + restore
       return await repo.restoreSnapshot(
         settings: settings,
         customCategories: customCategories,
@@ -244,6 +256,7 @@ class BackupService {
         outings: outings,
         transactions: transactions,
         friendSplits: friendSplits,
+        savedFriends: savedFriends,
       );
     } catch (_) {
       return false;

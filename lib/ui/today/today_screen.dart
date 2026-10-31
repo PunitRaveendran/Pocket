@@ -11,6 +11,7 @@ import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
+import '../sheets/adjust_balance_sheet.dart';
 import '../sheets/overspend_sheet.dart';
 import '../sheets/spend_sheet.dart';
 import '../widgets/allowance_meter.dart';
@@ -26,14 +27,18 @@ class TodayScreen extends ConsumerStatefulWidget {
   ConsumerState<TodayScreen> createState() => _TodayScreenState();
 }
 
-class _TodayScreenState extends ConsumerState<TodayScreen> {
+class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAliveClientMixin {
   String? _filter;
   LocalDate _selectedDate = LocalDate.today();
 
   bool get _isToday => _selectedDate == LocalDate.today();
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final t = TokenScope.of(context);
     final async = ref.watch(
       ledgerProvider.select(
@@ -286,25 +291,46 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Semantics(
-                                label: '${Money.spokenRupees(remaining.abs())} $label',
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(figure, style: TypeScale.figure(figureColor)),
-                                ),
+                          child: InkWell(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              showAdjustBalanceSheet(context);
+                            },
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Semantics(
+                                    label: '${Money.spokenRupees(remaining.abs())} $label',
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(figure, style: TypeScale.figure(figureColor)),
+                                          const SizedBox(width: 6),
+                                          Icon(
+                                            Icons.edit_outlined,
+                                            size: 16,
+                                            color: t.inkSoft.withValues(alpha: 0.6),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '$label · tap to adjust',
+                                    style: TypeScale.body(t.inkSoft),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
-                              Text(
-                                label,
-                                style: TypeScale.body(t.inkSoft),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                         const SizedBox(width: Space.x3),

@@ -119,7 +119,9 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
   void _syncToCustomFriends() {
     final currentNames = _parsedFriendNames();
     final friendCount = max(1, currentNames.isNotEmpty ? currentNames.length : _stepperCount - 1);
-    final totalFriendsPaise = _totalPaise > 0 ? _computeFriendsTotalPaise() : 0;
+    final totalFriendsPaise = _totalPaise > 0
+        ? (_totalPaise - (_totalPaise ~/ (friendCount + 1)))
+        : 0;
     final perFriendRupees = friendCount > 0 ? (totalFriendsPaise ~/ friendCount) ~/ 100 : 0;
 
     for (final f in _customFriends) {
@@ -142,6 +144,8 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
     final share = _totalPaise ~/ people;
     if (_isEqualSplit) {
       _myShareController.text = '${share ~/ 100}';
+    } else {
+      _myShareController.clear();
     }
   }
 
@@ -325,20 +329,7 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
     final ledger = ref.watch(ledgerProvider).valueOrNull;
     final cats = (ledger?.categories ?? []).where((c) => c.id != 'income').toList();
 
-    // Known past friends for quick tap chips (deduplicated case-insensitively)
-    final pastFriendsMap = <String, String>{};
-    if (ledger != null) {
-      for (final s in ledger.friendSplits) {
-        final trimmed = s.friendName.trim();
-        if (trimmed.isNotEmpty) {
-          final lower = trimmed.toLowerCase();
-          if (!pastFriendsMap.containsKey(lower)) {
-            pastFriendsMap[lower] = trimmed[0].toUpperCase() + (trimmed.length > 1 ? trimmed.substring(1) : '');
-          }
-        }
-      }
-    }
-    final pastFriends = pastFriendsMap.values.toList();
+    final pastFriends = ledger?.allFriendSuggestions ?? const [];
 
     final parsedNames = _parsedFriendNames();
     final peopleCount = _computePeopleCount();
@@ -495,6 +486,7 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                               onTap: () {
                                 setState(() {
                                   _isEqualSplit = false;
+                                  _myShareController.clear();
                                   _syncToCustomFriends();
                                 });
                               },
@@ -637,6 +629,43 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                             ),
                           ],
                         ),
+                        if (pastFriends.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (final f in pastFriends)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: LedgerChip(
+                                      label: f,
+                                      selected: _customFriends.any((e) => e.nameController.text.trim().toLowerCase() == f.trim().toLowerCase()),
+                                      onTap: () {
+                                        setState(() {
+                                          final existingIdx = _customFriends.indexWhere(
+                                            (e) => e.nameController.text.trim().toLowerCase() == f.trim().toLowerCase(),
+                                          );
+                                          if (existingIdx != -1) {
+                                            if (_customFriends.length > 1) {
+                                              _customFriends.removeAt(existingIdx);
+                                            }
+                                          } else {
+                                            if (_customFriends.length == 1 &&
+                                                _customFriends[0].nameController.text.startsWith('Friend ')) {
+                                              _customFriends[0].nameController.text = f;
+                                            } else {
+                                              _customFriends.add(_CustomFriendEntry(name: f, amountRupees: ''));
+                                            }
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 6),
                         for (var i = 0; i < _customFriends.length; i++) ...[
                           Container(
@@ -740,20 +769,47 @@ class _BillSplitSheetState extends ConsumerState<BillSplitSheet> {
                                 ),
                               ),
                               SizedBox(
-                                width: 75,
-                                child: TextField(
-                                  controller: _myShareController,
-                                  keyboardType: TextInputType.number,
-                                  textAlign: TextAlign.end,
-                                  style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w800),
-                                  cursorColor: t.accent,
-                                  decoration: InputDecoration(
-                                    prefixText: '₹ ',
-                                    hintText: '${_computeMySharePaise() ~/ 100}',
-                                    isDense: true,
-                                    border: InputBorder.none,
-                                  ),
-                                  onChanged: (_) => setState(() {}),
+                                width: 85,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _myShareController,
+                                        keyboardType: TextInputType.number,
+                                        textAlign: TextAlign.end,
+                                        style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w800),
+                                        cursorColor: t.accent,
+                                        decoration: InputDecoration(
+                                          prefixText: '₹ ',
+                                          hintText: '${_computeMySharePaise() ~/ 100}',
+                                          isDense: true,
+                                          border: InputBorder.none,
+                                        ),
+                                        onChanged: (val) {
+                                          if (_customFriends.length == 1) {
+                                            final myRupees = int.tryParse(val.trim()) ?? 0;
+                                            final totalRupees = _totalPaise ~/ 100;
+                                            final friendRupees = max(0, totalRupees - myRupees);
+                                            _customFriends.first.amountController.text = '$friendRupees';
+                                          }
+                                          setState(() {});
+                                        },
+                                      ),
+                                    ),
+                                    if (_myShareController.text.trim().isNotEmpty)
+                                      InkWell(
+                                        onTap: () {
+                                          _myShareController.clear();
+                                          setState(() {});
+                                        },
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(2),
+                                          child: Icon(Icons.close, size: 14, color: t.inkSoft),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ],

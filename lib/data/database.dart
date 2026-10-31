@@ -22,7 +22,7 @@ class PocketDatabase {
     final path = await dbPath;
     _db = await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onConfigure: (db) async {
         try {
           await db.execute('PRAGMA foreign_keys = ON;');
@@ -130,6 +130,15 @@ class PocketDatabase {
             last_used_at INTEGER NOT NULL
           )
         ''');
+
+        await db.execute('''
+          CREATE TABLE friends (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+        await db.execute('CREATE INDEX idx_friends_name ON friends(name)');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -190,6 +199,16 @@ class PocketDatabase {
               last_used_at INTEGER NOT NULL
             )
           ''');
+        }
+        if (oldVersion < 6) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS friends (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+              created_at INTEGER NOT NULL
+            )
+          ''');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_friends_name ON friends(name)');
         }
       },
     );
@@ -267,6 +286,7 @@ class PocketDatabase {
     await database.transaction((txn) async {
       await txn.delete('fixed_deductions');
       await txn.delete('friend_splits');
+      await txn.delete('friends');
       await txn.delete('txns');
       await txn.delete('outings');
       await txn.delete('categories');

@@ -51,13 +51,17 @@ class _FriendGroup {
   int get activeCount => splits.where((s) => !s.isSettled).length;
 }
 
-class _SplitsScreenState extends ConsumerState<SplitsScreen> {
+class _SplitsScreenState extends ConsumerState<SplitsScreen> with AutomaticKeepAliveClientMixin {
   SplitFilter _filter = SplitFilter.all;
   bool _groupByFriend = true;
   final Set<String> _expandedFriends = <String>{};
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final t = TokenScope.of(context);
     final async = ref.watch(
       ledgerProvider.select(

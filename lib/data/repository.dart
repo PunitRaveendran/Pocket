@@ -115,6 +115,7 @@ class PocketRepository {
     ),
   ];
 
+  static final List<String> _webFriends = ['Surya', 'Punit', 'Sneh', 'Rahul'];
   static final List<PendingTransaction> _webPendingInbox = [];
   static final Map<String, String> _webMerchantMemory = {};
 
@@ -127,6 +128,7 @@ class PocketRepository {
         outings: List.of(_webOutings),
         friendSplits: List.of(_webSplits),
         pendingInbox: List.of(_webPendingInbox.where((p) => p.status == InboxStatus.pending)),
+        savedFriends: List.of(_webFriends),
       );
     }
 
@@ -162,6 +164,7 @@ class PocketRepository {
         whereArgs: ['pending'],
         orderBy: 'occurred_at DESC',
       ),
+      db.query('friends', orderBy: 'name COLLATE NOCASE ASC'),
     ]);
 
     final dedRows = results[0];
@@ -171,6 +174,7 @@ class PocketRepository {
     final txnRows = results[4];
     final splitRows = results[5];
     final inboxRows = results[6];
+    final friendRows = results[7];
 
     final deductions = dedRows.map(_deductionFromRow).toList();
     final map = {for (final r in settingRows) r['key'] as String: r['value'] as String};
@@ -231,6 +235,7 @@ class PocketRepository {
     final txns = txnRows.map(_txnFromRow).toList();
     final splits = splitRows.map(_splitFromRow).toList();
     final inbox = inboxRows.map(_pendingFromRow).toList();
+    final savedFriends = friendRows.map((r) => r['name'] as String).toList();
 
     return Ledger(
       settings: settings,
@@ -239,6 +244,7 @@ class PocketRepository {
       outings: outings,
       friendSplits: splits,
       pendingInbox: inbox,
+      savedFriends: savedFriends,
     );
   }
 
@@ -337,6 +343,74 @@ class PocketRepository {
       );
       await txn.delete('categories', where: 'id = ? AND is_system = 0', whereArgs: [id]);
     });
+  }
+
+  Future<void> reorderCategories(List<String> orderedIds) async {
+    if (_isInMemory) {
+      final map = {for (var i = 0; i < orderedIds.length; i++) orderedIds[i]: i};
+      _webCategories.sort((a, b) => (map[a.id] ?? 999).compareTo(map[b.id] ?? 999));
+      for (var i = 0; i < _webCategories.length; i++) {
+        final c = _webCategories[i];
+        _webCategories[i] = Category(
+          id: c.id,
+          name: c.name,
+          icon: c.icon,
+          isSystem: c.isSystem,
+          sortOrder: i,
+        );
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    final batch = db.batch();
+    for (var i = 0; i < orderedIds.length; i++) {
+      batch.update(
+        'categories',
+        {'sort_order': i},
+        where: 'id = ?',
+        whereArgs: [orderedIds[i]],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> addFriend(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    if (_isInMemory) {
+      if (!_webFriends.any((f) => f.toLowerCase() == trimmed.toLowerCase())) {
+        _webFriends.add(trimmed);
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.insert(
+      'friends',
+      {
+        'id': _uuid.v4(),
+        'name': trimmed,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<void> deleteFriend(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    if (_isInMemory) {
+      _webFriends.removeWhere((f) => f.toLowerCase() == trimmed.toLowerCase());
+      return;
+    }
+
+    final db = await _db.db;
+    await db.delete(
+      'friends',
+      where: 'name = ? COLLATE NOCASE',
+      whereArgs: [trimmed],
+    );
   }
 
   Future<Txn> addTxn({
@@ -892,6 +966,7 @@ class PocketRepository {
     required List<Outing> outings,
     required List<Txn> transactions,
     required List<FriendSplit> friendSplits,
+    List<String> savedFriends = const [],
   }) async {
     if (_isInMemory) {
       _webSettings = settings;
@@ -911,6 +986,9 @@ class PocketRepository {
       _webSplits
         ..clear()
         ..addAll(friendSplits);
+      _webFriends
+        ..clear()
+        ..addAll(savedFriends.isNotEmpty ? savedFriends : ['Surya', 'Punit', 'Sneh', 'Rahul']);
       return true;
     }
 
@@ -920,6 +998,7 @@ class PocketRepository {
         // 1. Wipe existing tables cleanly
         await txn.delete('fixed_deductions');
         await txn.delete('friend_splits');
+        await txn.delete('friends');
         await txn.delete('txns');
         await txn.delete('outings');
         await txn.delete('categories');
@@ -983,6 +1062,20 @@ class PocketRepository {
         for (final s in friendSplits) {
           await txn.insert('friend_splits', _splitToRow(s));
         }
+
+        // 9. Batch insert saved friends
+        final friendsToSeed = savedFriends.isNotEmpty ? savedFriends : ['Surya', 'Punit', 'Sneh', 'Rahul'];
+        for (final friend in friendsToSeed) {
+          await txn.insert(
+            'friends',
+            {
+              'id': _uuid.v4(),
+              'name': friend,
+              'created_at': DateTime.now().millisecondsSinceEpoch,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
       });
 
       await _db.optimize();
@@ -1003,6 +1096,21 @@ class PocketRepository {
           'is_system': 1,
           'sort_order': c.sortOrder,
         });
+      }
+    }
+
+    final friendCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM friends')) ?? 0;
+    if (friendCount == 0) {
+      for (final name in ['Surya', 'Punit', 'Sneh', 'Rahul']) {
+        await db.insert(
+          'friends',
+          {
+            'id': _uuid.v4(),
+            'name': name,
+            'created_at': DateTime.now().millisecondsSinceEpoch,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
       }
     }
   }

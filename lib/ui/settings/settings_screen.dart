@@ -12,6 +12,7 @@ import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
+import '../sheets/adjust_balance_sheet.dart';
 import '../sheets/receipt_sheet.dart';
 import '../widgets/amount_pad.dart';
 import '../widgets/category_icon.dart';
@@ -191,6 +192,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               style: TypeScale.money(t.ink),
             ),
             onTap: () => _editStipend(context, ref, s.stipendPaise),
+          ),
+          const Hairline(indent: Space.margin),
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            title: Text('Adjust Account Balance', style: TypeScale.body(t.ink)),
+            subtitle: Text('Manually correct current balance or base stipend', style: TypeScale.caption(t.inkSoft)),
+            trailing: Icon(Icons.tune, color: t.accent, size: 20),
+            onTap: () => showAdjustBalanceSheet(context),
           ),
           const Hairline(indent: Space.margin),
           ListTile(
@@ -432,27 +441,119 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
               leading: Icon(Icons.category_outlined, size: 20, color: t.inkSoft),
               title: Text('Categories (${ledger.categories.length})', style: TypeScale.body(t.ink)),
-              subtitle: Text('Tap to view and add spend tags', style: TypeScale.caption(t.inkSoft)),
+              subtitle: Text('Drag ≡ to reorder · decides order across app', style: TypeScale.caption(t.inkSoft)),
               children: [
-                for (final c in ledger.categories)
-                  ListTile(
-                    contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                    leading: Icon(categoryIcon(c.icon), size: 18, color: t.inkSoft),
-                    title: Text(c.name, style: TypeScale.body(t.ink)),
-                    subtitle: Text(c.isSystem ? 'Built in' : 'Custom', style: TypeScale.caption(t.inkSoft)),
-                    trailing: c.isSystem
-                        ? null
-                        : IconButton(
-                            icon: Icon(Icons.delete_outline, size: 18, color: t.over),
-                            tooltip: 'Delete category',
-                            onPressed: () => _deleteCategory(context, ref, c),
-                          ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.margin + 32, vertical: 4),
+                  child: Text(
+                    'Drag using the ≡ handle to prioritize which categories appear first across Today, Spend Sheet, and Insights.',
+                    style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 12),
                   ),
+                ),
+                ReorderableListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  buildDefaultDragHandles: false,
+                  itemCount: ledger.categories.length,
+                  // ignore: deprecated_member_use
+                  onReorder: (oldIndex, newIndex) async {
+                    HapticFeedback.mediumImpact();
+                    if (newIndex > oldIndex) newIndex -= 1;
+                    final items = List<Category>.from(ledger.categories);
+                    final item = items.removeAt(oldIndex);
+                    items.insert(newIndex, item);
+                    await ref.read(ledgerProvider.notifier).reorderCategories(items.map((c) => c.id).toList());
+                  },
+                  itemBuilder: (context, index) {
+                    final c = ledger.categories[index];
+                    return ListTile(
+                      key: ValueKey(c.id),
+                      contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                      leading: Icon(categoryIcon(c.icon), size: 18, color: t.inkSoft),
+                      title: Text(c.name, style: TypeScale.body(t.ink)),
+                      subtitle: Text(c.isSystem ? 'Built in' : 'Custom', style: TypeScale.caption(t.inkSoft)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!c.isSystem)
+                            IconButton(
+                              icon: Icon(Icons.delete_outline, size: 18, color: t.over),
+                              tooltip: 'Delete category',
+                              onPressed: () => _deleteCategory(context, ref, c),
+                            ),
+                          ReorderableDragStartListener(
+                            index: index,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                              child: Icon(Icons.drag_handle, size: 20, color: t.inkSoft),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
                   leading: Icon(Icons.add, size: 18, color: t.accent),
                   title: Text(Copy.addCategory, style: TypeScale.body(t.accent)),
                   onTap: () => _addCategory(context, ref, t),
+                ),
+              ],
+            ),
+          ),
+          const Hairline(indent: Space.margin),
+          // Section: Friends Management (Collapsible)
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+              leading: Icon(Icons.people_alt_outlined, size: 20, color: t.inkSoft),
+              title: Text('Saved Friends (${ledger.allFriendSuggestions.length})', style: TypeScale.body(t.ink)),
+              subtitle: Text('Manage quick suggestion pills for bill splits', style: TypeScale.caption(t.inkSoft)),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.margin + 32, vertical: 4),
+                  child: Text(
+                    'Friends saved here appear as quick-tap pills across Spend Sheet and Bill Splits so you never have to type their names.',
+                    style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: Space.x2),
+                if (ledger.allFriendSuggestions.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Space.margin + 32),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final f in ledger.allFriendSuggestions)
+                            InputChip(
+                              avatar: CircleAvatar(
+                                backgroundColor: t.accentTint,
+                                child: Text(
+                                  f.isNotEmpty ? f[0].toUpperCase() : '?',
+                                  style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.bold, fontSize: 11),
+                                ),
+                              ),
+                              label: Text(f, style: TypeScale.body(t.ink).copyWith(fontSize: 13)),
+                              deleteIcon: Icon(Icons.close, size: 16, color: t.inkSoft),
+                              onDeleted: () => _deleteFriend(context, ref, f),
+                              backgroundColor: t.card,
+                              side: BorderSide(color: t.rule),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: Space.x2),
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                  leading: Icon(Icons.person_add_alt_1, size: 18, color: t.accent),
+                  title: Text('Add Friend', style: TypeScale.body(t.accent)),
+                  onTap: () => _addFriend(context, ref, t),
                 ),
               ],
             ),
@@ -707,6 +808,109 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     if (ok == true) {
       await ref.read(ledgerProvider.notifier).deleteCategory(category.id);
+    }
+  }
+
+  Future<void> _addFriend(BuildContext context, WidgetRef ref, PaperTokens t) async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Add Friend', style: TypeScale.heading(t.ink)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Add a frequent friend to appear as a quick-tap pill during bill splits.',
+              style: TypeScale.caption(t.inkSoft),
+            ),
+            const SizedBox(height: Space.x2),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              style: TypeScale.body(t.ink),
+              cursorColor: t.accent,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (val) {
+                final v = val.trim();
+                if (v.isNotEmpty) {
+                  Navigator.pop(ctx, v);
+                }
+              },
+              decoration: InputDecoration(
+                hintText: "Friend's name (e.g. Rahul)",
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.accent)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+          ),
+          TextButton(
+            onPressed: () {
+              final v = controller.text.trim();
+              if (v.isNotEmpty) {
+                Navigator.pop(ctx, v);
+              }
+            },
+            child: Text('Add', style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (name != null && name.trim().isNotEmpty) {
+      await ref.read(ledgerProvider.notifier).addFriend(name.trim());
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added "${name.trim()}" to saved friends.'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteFriend(BuildContext context, WidgetRef ref, String friendName) async {
+    final t = TokenScope.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Remove "$friendName"?', style: TypeScale.heading(t.ink)),
+        content: Text(
+          'This will remove "$friendName" from your quick-suggestion pills. Existing split history will remain intact.',
+          style: TypeScale.body(t.inkSoft),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Remove', style: TypeScale.body(t.over)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      await ref.read(ledgerProvider.notifier).deleteFriend(friendName);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Removed "$friendName" from saved friends.'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 

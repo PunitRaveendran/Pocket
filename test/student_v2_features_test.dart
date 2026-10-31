@@ -333,4 +333,49 @@ void main() {
       expect(amanSplits.first.amountPaise, 5000);
     });
   });
+
+  group('Category Reordering & Friends Suggestions Tests', () {
+    test('reorderCategories alters category order in ledger', () async {
+      final repo = PocketRepository(PocketDatabase.instance, inMemory: true);
+      await repo.wipe();
+      final ledger1 = await repo.load();
+      final originalIds = ledger1.categories.map((c) => c.id).toList();
+
+      // Reverse order of categories
+      final reversedIds = originalIds.reversed.toList();
+      await repo.reorderCategories(reversedIds);
+
+      final ledger2 = await repo.load();
+      expect(ledger2.categories.map((c) => c.id).toList(), reversedIds);
+    });
+
+    test('addFriend, deleteFriend and allFriendSuggestions work properly', () async {
+      final repo = PocketRepository(PocketDatabase.instance, inMemory: true);
+      await repo.wipe();
+      await repo.addFriend('Vikram');
+      var ledger = await repo.load();
+      expect(ledger.savedFriends, contains('Vikram'));
+      expect(ledger.allFriendSuggestions, contains('Vikram'));
+
+      // Test deduplication with past split
+      final today = LocalDate(2026, 10, 28);
+      await repo.splitBill(
+        totalAmountPaise: 2000,
+        mySharePaise: 1000,
+        friends: [(friendName: 'Vikram', amountPaise: 1000)],
+        date: today,
+        categoryId: 'food',
+        merchant: 'Canteen',
+      );
+
+      ledger = await repo.load();
+      final vikramCount = ledger.allFriendSuggestions.where((f) => f.toLowerCase() == 'vikram').length;
+      expect(vikramCount, 1);
+
+      // Delete friend
+      await repo.deleteFriend('Vikram');
+      ledger = await repo.load();
+      expect(ledger.savedFriends, isNot(contains('Vikram')));
+    });
+  });
 }

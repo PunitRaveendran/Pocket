@@ -475,7 +475,16 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                   const SizedBox(height: Space.x3),
                   // Inline Friend Split section
                   InkWell(
-                    onTap: () => setState(() => _splitWithFriend = !_splitWithFriend),
+                    onTap: () {
+                      setState(() {
+                        _splitWithFriend = !_splitWithFriend;
+                        if (_splitWithFriend &&
+                            _friendShareController.text.trim().isEmpty &&
+                            _amount.paiseTotal > 0) {
+                          _friendShareController.text = '${(_amount.paiseTotal ~/ 200)}';
+                        }
+                      });
+                    },
                     borderRadius: BorderRadius.circular(Space.controlRadius),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -507,6 +516,33 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if ((ledger?.allFriendSuggestions ?? []).isNotEmpty) ...[
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (final f in ledger!.allFriendSuggestions) ...[
+                                    LedgerChip(
+                                      label: f,
+                                      selected: _friendNameController.text.trim().toLowerCase() == f.trim().toLowerCase(),
+                                      onTap: () {
+                                        HapticFeedback.selectionClick();
+                                        setState(() {
+                                          if (_friendNameController.text.trim().toLowerCase() == f.trim().toLowerCase()) {
+                                            _friendNameController.clear();
+                                          } else {
+                                            _friendNameController.text = f;
+                                          }
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: Space.x2),
+                          ],
                           Row(
                             children: [
                               Expanded(
@@ -522,6 +558,7 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                                     isDense: true,
                                     border: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
                                   ),
+                                  onChanged: (_) => setState(() {}),
                                 ),
                               ),
                               const SizedBox(width: Space.x3),
@@ -539,6 +576,7 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                                     isDense: true,
                                     border: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
                                   ),
+                                  onChanged: (_) => setState(() {}),
                                 ),
                               ),
                             ],
@@ -719,6 +757,33 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                   ),
                 ],
                 if (openSplits.isEmpty || _selectedSplitId == null) ...[
+                  if ((ledger?.allFriendSuggestions ?? []).isNotEmpty) ...[
+                    const SizedBox(height: Space.x2),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final f in ledger!.allFriendSuggestions) ...[
+                            LedgerChip(
+                              label: f,
+                              selected: _friendNameController.text.trim().toLowerCase() == f.trim().toLowerCase(),
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() {
+                                  if (_friendNameController.text.trim().toLowerCase() == f.trim().toLowerCase()) {
+                                    _friendNameController.clear();
+                                  } else {
+                                    _friendNameController.text = f;
+                                  }
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: Space.x2),
                   TextField(
                     controller: _friendNameController,
