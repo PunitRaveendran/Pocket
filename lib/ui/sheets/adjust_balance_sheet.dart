@@ -313,7 +313,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
       return;
     }
 
-    // BalanceMode.currentBalance: Apply adjustment
+    // BalanceMode.currentBalance: Fix the account amount without reflecting in spending
     final diff = targetPaise - currentRemaining;
     if (diff == 0) {
       Navigator.pop(context);
@@ -321,33 +321,26 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
     }
 
     final today = LocalDate.today();
-    if (diff > 0) {
-      // Add top-up credit
-      await ref.read(ledgerProvider.notifier).addDailySpend(
-            amountPaise: diff,
-            categoryId: 'income',
-            date: today,
-            merchant: 'Balance Adjustment',
-            direction: Direction.credit,
-            note: 'Corrected monthly balance (${Money.formatPaise(targetPaise)})',
-          );
-    } else {
-      // Add correction debit
-      await ref.read(ledgerProvider.notifier).addDailySpend(
-            amountPaise: diff.abs(),
-            categoryId: 'misc',
-            date: today,
-            merchant: 'Balance Adjustment',
-            direction: Direction.debit,
-            note: 'Corrected monthly balance (${Money.formatPaise(targetPaise)})',
-          );
-    }
+    final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
+    final spentThisCycle = ordinaryThisCycle(ledger, cycle);
+    final rolloverPaise = rolloverSavingsFromPreviousCycle(ledger, cycle);
+    final topUps = extraTopUpForCycle(ledger, cycle);
+    final fixedDeductions = ledger.settings.totalFixedDeductionsPaise;
+
+    // Adjust base stipend in settings so the calculated remaining balance
+    // exactly equals the user's desired amount, with zero fake spending transactions.
+    final newStipendPaise = (targetPaise + spentThisCycle + fixedDeductions - rolloverPaise - topUps)
+        .clamp(0, 999999999);
+
+    await ref.read(ledgerProvider.notifier).updateSettings(
+          ledger.settings.copyWith(stipendPaise: newStipendPaise),
+        );
 
     if (context.mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Monthly remaining balance updated to ${Money.formatPaise(targetPaise)}!'),
+          content: Text('Account balance set to ${Money.formatPaise(targetPaise)}!'),
           duration: const Duration(seconds: 2),
         ),
       );

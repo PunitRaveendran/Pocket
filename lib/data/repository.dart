@@ -124,7 +124,9 @@ class PocketRepository {
       return Ledger(
         settings: _webSettings.copyWith(fixedDeductions: List.of(_webDeductions)),
         categories: List.of(_webCategories),
-        transactions: List.of(_webTxns),
+        transactions: List.of(
+          _webTxns.where((t) => t.merchant != 'Balance Adjustment' && t.merchant != 'Manual Balance Adjustment'),
+        ),
         outings: List.of(_webOutings),
         friendSplits: List.of(_webSplits),
         pendingInbox: List.of(_webPendingInbox.where((p) => p.status == InboxStatus.pending)),
@@ -232,7 +234,10 @@ class PocketRepository {
         )
         .toList();
 
-    final txns = txnRows.map(_txnFromRow).toList();
+    final txns = txnRows
+        .map(_txnFromRow)
+        .where((t) => t.merchant != 'Balance Adjustment' && t.merchant != 'Manual Balance Adjustment')
+        .toList();
     final splits = splitRows.map(_splitFromRow).toList();
     final inbox = inboxRows.map(_pendingFromRow).toList();
     final savedFriends = friendRows.map((r) => r['name'] as String).toList();

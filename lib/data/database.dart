@@ -211,6 +211,13 @@ class PocketDatabase {
           await db.execute('CREATE INDEX IF NOT EXISTS idx_friends_name ON friends(name)');
         }
       },
+      onOpen: (db) async {
+        // Clean up any historical balance adjustment records so they never show in spending
+        await db.delete(
+          'txns',
+          where: "merchant = 'Balance Adjustment' OR merchant = 'Manual Balance Adjustment'",
+        );
+      },
     );
     return _db!;
   }

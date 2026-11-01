@@ -470,6 +470,67 @@ void main() {
       final currentRemaining = cycleStipend - spentThisCycle;
       expect(currentRemaining, 1700000);
     });
+
+    test('balance adjustment fixes account amount without creating any spending transactions', () {
+      final today = const LocalDate(2026, 11, 10);
+      final cycle = PayCycle.containing(today, 1);
+
+      final realSpend = Txn(
+        id: 't_real',
+        amountPaise: 50000, // ₹500 real food expense
+        categoryId: 'food',
+        merchant: 'Canteen',
+        occurredAtMs: 1000,
+        localDate: today,
+        direction: Direction.debit,
+        bucket: Bucket.daily,
+        note: 'Lunch',
+      );
+
+      final initialLedger = Ledger(
+        settings: const Settings(
+          stipendPaise: 300000, // ₹3,000 base stipend
+          cycleStartDay: 1,
+          hideAmounts: false,
+          onboarded: true,
+          rolloverUnspent: false,
+        ),
+        categories: const [],
+        transactions: [realSpend],
+        outings: const [],
+      );
+
+      // Current remaining = ₹3,000 stipend - ₹500 spent = ₹2,500
+      expect(ordinaryThisCycle(initialLedger, cycle), 50000);
+      final remainingBefore = effectiveStipendForCycle(initialLedger, cycle) - ordinaryThisCycle(initialLedger, cycle);
+      expect(remainingBefore, 250000);
+
+      // User wants their account balance to be fixed to ₹3,500 (targetPaise = 350000)
+      const targetPaise = 350000;
+      final spent = ordinaryThisCycle(initialLedger, cycle);
+      final rollover = rolloverSavingsFromPreviousCycle(initialLedger, cycle);
+      final topUps = extraTopUpForCycle(initialLedger, cycle);
+      final fixed = initialLedger.settings.totalFixedDeductionsPaise;
+
+      final newStipendPaise = (targetPaise + spent + fixed - rollover - topUps).clamp(0, 999999999);
+      expect(newStipendPaise, 400000); // Base stipend becomes ₹4,000
+
+      final adjustedLedger = Ledger(
+        settings: initialLedger.settings.copyWith(stipendPaise: newStipendPaise),
+        categories: initialLedger.categories,
+        transactions: initialLedger.transactions, // ZERO new transactions added!
+        outings: initialLedger.outings,
+      );
+
+      // Spending is completely unchanged (still ₹500, not ₹0 or negative or extra)
+      expect(ordinaryThisCycle(adjustedLedger, cycle), 50000);
+      expect(adjustedLedger.transactions.length, 1);
+      expect(adjustedLedger.transactions.first.merchant, 'Canteen');
+
+      // Remaining balance now accurately equals the target ₹3,500!
+      final remainingAfter = effectiveStipendForCycle(adjustedLedger, cycle) - ordinaryThisCycle(adjustedLedger, cycle);
+      expect(remainingAfter, 350000);
+    });
   });
 }
 
