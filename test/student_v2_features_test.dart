@@ -378,4 +378,98 @@ void main() {
       expect(ledger.savedFriends, isNot(contains('Vikram')));
     });
   });
+
+  group('Week/Day Switcher and Monthly Balance Rollover Tests', () {
+    test('Sunday cycle start creates full multi-day week and updates money between Day and Week', () {
+      final cycle = PayCycle.containing(const LocalDate(2026, 11, 1), 1);
+      final weeks = cycle.calendarWeeks();
+
+      // Nov 1, 2026 is Sunday. Week 1 spans Sun Nov 1 to Sun Nov 8 (8 days)
+      expect(weeks.first.start, const LocalDate(2026, 11, 1));
+      expect(weeks.first.end, const LocalDate(2026, 11, 8));
+      expect(weeks.first.lengthDays, 8);
+
+      final ledger = Ledger(
+        settings: const Settings(
+          stipendPaise: 300000, // ₹3,000 for 30 days = ₹100/day
+          cycleStartDay: 1,
+          hideAmounts: false,
+          onboarded: true,
+          leftoverPolicy: LeftoverPolicy.dynamicDistribute,
+        ),
+        categories: const [],
+        transactions: const [],
+        outings: const [],
+      );
+
+      final dayView = buildToday(ledger, date: const LocalDate(2026, 11, 1));
+      final weekView = buildCurrentWeek(ledger, date: const LocalDate(2026, 11, 1));
+
+      // Day view gives 1 day's allowance (₹100)
+      expect(dayView.budget.allowancePaise, 10000);
+      expect(dayView.budget.remaining, 10000);
+
+      // Week view gives 8 days' allowance (₹800), NOT a duplicate of day view (₹100)!
+      expect(weekView.budget.allowancePaise, 80000);
+      expect(weekView.budget.remaining, 80000);
+    });
+
+    test('monthly balance incorporates unspent rollover from previous cycle', () {
+      final prevDay = const LocalDate(2026, 10, 25);
+      final currentDay = const LocalDate(2026, 11, 5);
+
+      final ledger = Ledger(
+        settings: const Settings(
+          stipendPaise: 1000000, // ₹10,000 base stipend
+          cycleStartDay: 1,
+          hideAmounts: false,
+          onboarded: true,
+          rolloverUnspent: true,
+        ),
+        categories: const [],
+        transactions: [
+          // Previous cycle (October): spent ₹2,000 out of ₹10,000 -> ₹8,000 leftover unspent!
+          Txn(
+            id: 't_prev',
+            amountPaise: 200000,
+            categoryId: 'food',
+            merchant: 'Mess',
+            occurredAtMs: 1000,
+            localDate: prevDay,
+            direction: Direction.debit,
+            bucket: Bucket.daily,
+            note: 'Mess fee',
+          ),
+          // Current cycle (November): spent ₹1,000
+          Txn(
+            id: 't_curr',
+            amountPaise: 100000,
+            categoryId: 'food',
+            merchant: 'Snacks',
+            occurredAtMs: 2000,
+            localDate: currentDay,
+            direction: Direction.debit,
+            bucket: Bucket.daily,
+            note: 'Canteen',
+          ),
+        ],
+        outings: const [],
+      );
+
+      final currentCycle = PayCycle.containing(currentDay, 1);
+      final rollover = rolloverSavingsFromPreviousCycle(ledger, currentCycle);
+      expect(rollover, 800000); // ₹8,000 rolled over from October!
+
+      final cycleStipend = effectiveStipendForCycle(ledger, currentCycle);
+      expect(cycleStipend, 1800000); // ₹10,000 base + ₹8,000 rollover = ₹18,000
+
+      final spentThisCycle = ordinaryThisCycle(ledger, currentCycle);
+      expect(spentThisCycle, 100000); // ₹1,000 spent in Nov
+
+      // Actual remaining monthly balance including rollover: ₹18,000 - ₹1,000 = ₹17,000
+      final currentRemaining = cycleStipend - spentThisCycle;
+      expect(currentRemaining, 1700000);
+    });
+  });
 }
+

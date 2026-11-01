@@ -30,6 +30,7 @@ class TodayScreen extends ConsumerStatefulWidget {
 class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAliveClientMixin {
   String? _filter;
   LocalDate _selectedDate = LocalDate.today();
+  PacingMode? _pacingOverride;
 
   bool get _isToday => _selectedDate == LocalDate.today();
 
@@ -57,7 +58,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
           transactions: transactions,
           outings: const [],
         );
-        final isWeekly = ledger.settings.pacingMode == PacingMode.weekly;
+        final isWeekly = (_pacingOverride ?? ledger.settings.pacingMode) == PacingMode.weekly;
         final hide = ledger.settings.hideAmounts;
 
         final int remaining;
@@ -231,6 +232,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                                 child: InkWell(
                                   onTap: () {
                                     HapticFeedback.selectionClick();
+                                    setState(() => _pacingOverride = PacingMode.daily);
                                     ref
                                         .read(ledgerProvider.notifier)
                                         .setPacingMode(PacingMode.daily);
@@ -258,6 +260,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                                 child: InkWell(
                                   onTap: () {
                                     HapticFeedback.selectionClick();
+                                    setState(() => _pacingOverride = PacingMode.weekly);
                                     ref
                                         .read(ledgerProvider.notifier)
                                         .setPacingMode(PacingMode.weekly);

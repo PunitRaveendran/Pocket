@@ -115,7 +115,10 @@ class PayCycle {
     var w = 1;
 
     while (!currentStart.dateTime.isAfter(endInclusive.dateTime)) {
-      final daysToSunday = DateTime.sunday - currentStart.weekday;
+      var daysToSunday = DateTime.sunday - currentStart.weekday;
+      if (daysToSunday <= 0) {
+        daysToSunday += 7;
+      }
       final candidateEnd = currentStart.addDays(daysToSunday);
       final currentEnd = candidateEnd.dateTime.isAfter(endInclusive.dateTime)
           ? endInclusive

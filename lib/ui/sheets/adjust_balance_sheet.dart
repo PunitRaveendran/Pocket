@@ -45,17 +45,11 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
     if (ledger == null) return const SizedBox.shrink();
 
     final today = LocalDate.today();
-    final isWeekly = ledger.settings.pacingMode == PacingMode.weekly;
-
-    // Current remaining balance
-    final int currentRemaining;
-    if (isWeekly) {
-      final weekView = buildCurrentWeek(ledger, date: today);
-      currentRemaining = weekView.budget.remaining;
-    } else {
-      final view = buildToday(ledger, date: today);
-      currentRemaining = view.budget.remaining;
-    }
+    final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
+    final cycleStipend = effectiveStipendForCycle(ledger, cycle);
+    final spentThisCycle = ordinaryThisCycle(ledger, cycle);
+    final currentRemaining = cycleStipend - spentThisCycle;
+    final rolloverPaise = rolloverSavingsFromPreviousCycle(ledger, cycle);
 
     final currentStipendPaise = ledger.settings.stipendPaise;
 
@@ -119,7 +113,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                         Text('Modify Account Balance', style: TypeScale.title(t.ink)),
                         Text(
                           _mode == BalanceMode.currentBalance
-                              ? 'Set your exact current wallet or bank balance'
+                              ? 'Set your actual remaining pocket money balance'
                               : 'Set your regular monthly pocket money base',
                           style: TypeScale.caption(t.inkSoft),
                         ),
@@ -164,7 +158,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                           ),
                           alignment: Alignment.center,
                           child: Text(
-                            'Current Balance',
+                            'Remaining Balance',
                             style: TypeScale.caption(
                               _mode == BalanceMode.currentBalance ? t.accent : t.inkSoft,
                             ).copyWith(
@@ -205,6 +199,31 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                   ],
                 ),
               ),
+              if (rolloverPaise > 0) ...[
+                const SizedBox(height: Space.x2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: t.accentTint.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.history_toggle_off, size: 14, color: t.accent),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Includes ₹${rolloverPaise ~/ 100} unspent rolled over from previous cycle',
+                          style: TypeScale.caption(t.accent).copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: Space.x4),
 
               // Live Amount Display
@@ -233,13 +252,13 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                       child: Text(
                         _mode == BalanceMode.currentBalance
                             ? (diffPaise == 0
-                                ? 'Matches your current calculated balance (${Money.formatPaise(currentRemaining)})'
+                                ? 'Matches current remaining monthly balance (${Money.formatPaise(currentRemaining)})'
                                 : (diffPaise > 0
-                                    ? 'Adjustment: +${Money.formatPaise(diffPaise)} will be added to your balance'
-                                    : 'Adjustment: -${Money.formatPaise(diffPaise.abs())} will be deducted to match'))
+                                    ? 'Adjustment: +${Money.formatPaise(diffPaise)} will be added to balance'
+                                    : 'Adjustment: -${Money.formatPaise(diffPaise.abs())} will be deducted to balance'))
                             : (diffPaise == 0
-                                ? 'Matches current stipend (${Money.formatPaise(currentStipendPaise)})'
-                                : 'Will update monthly base from ${Money.formatPaise(currentStipendPaise)} to ${Money.formatPaise(targetPaise)}'),
+                                ? 'Matches current base stipend (${Money.formatPaise(currentStipendPaise)})${rolloverPaise > 0 ? " (+₹${rolloverPaise ~/ 100} rollover active)" : ""}'
+                                : 'Will update monthly base from ${Money.formatPaise(currentStipendPaise)} to ${Money.formatPaise(targetPaise)}${rolloverPaise > 0 ? " (+₹${rolloverPaise ~/ 100} rollover stays active)" : ""}'),
                         style: TypeScale.caption(t.inkSoft),
                       ),
                     ),
@@ -259,7 +278,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
               PrimaryButton(
                 label: _mode == BalanceMode.currentBalance
                     ? 'Set Balance to ${Money.formatPaise(targetPaise)}'
-                    : 'Save Monthly Stipend (${Money.formatPaise(targetPaise)})',
+                    : 'Save Base Stipend (${Money.formatPaise(targetPaise)})',
                 onPressed: () => _applyChange(context, ledger, currentRemaining, currentStipendPaise),
               ),
               const SizedBox(height: Space.x2),
@@ -286,7 +305,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Monthly stipend updated to ${Money.formatPaise(targetPaise)}!'),
+            content: Text('Monthly base stipend updated to ${Money.formatPaise(targetPaise)}!'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -308,9 +327,9 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
             amountPaise: diff,
             categoryId: 'income',
             date: today,
-            merchant: 'Manual Balance Adjustment',
+            merchant: 'Balance Adjustment',
             direction: Direction.credit,
-            note: 'Corrected to match account balance (${Money.formatPaise(targetPaise)})',
+            note: 'Corrected monthly balance (${Money.formatPaise(targetPaise)})',
           );
     } else {
       // Add correction debit
@@ -318,9 +337,9 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
             amountPaise: diff.abs(),
             categoryId: 'misc',
             date: today,
-            merchant: 'Manual Balance Adjustment',
+            merchant: 'Balance Adjustment',
             direction: Direction.debit,
-            note: 'Corrected to match account balance (${Money.formatPaise(targetPaise)})',
+            note: 'Corrected monthly balance (${Money.formatPaise(targetPaise)})',
           );
     }
 
@@ -328,7 +347,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Account balance updated to ${Money.formatPaise(targetPaise)}!'),
+          content: Text('Monthly remaining balance updated to ${Money.formatPaise(targetPaise)}!'),
           duration: const Duration(seconds: 2),
         ),
       );
