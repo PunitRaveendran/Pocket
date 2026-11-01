@@ -125,6 +125,17 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
   Future<void> _save() async {
     if (_amount.paiseTotal <= 0) return;
 
+    final merchantText = _merchant.text.trim();
+    if (widget.editing != null &&
+        merchantText.isNotEmpty &&
+        widget.editing!.merchant.isNotEmpty &&
+        merchantText.toLowerCase() != widget.editing!.merchant.toLowerCase()) {
+      await ref.read(ledgerProvider.notifier).saveMerchantAlias(
+            rawMerchant: widget.editing!.merchant,
+            displayName: merchantText,
+          );
+    }
+
     if (_direction == Direction.debit) {
       final friendShareRupees = int.tryParse(_friendShareController.text.trim()) ?? 0;
       final friendSharePaise = friendShareRupees * 100;

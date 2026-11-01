@@ -133,5 +133,79 @@ void main() {
       expect(loaded.settings.emailSyncEnabled, isFalse);
       expect(loaded.settings.emailSyncAddress, isEmpty);
     });
+
+    test('Merchant alias memory stores and resolves friendly names for senders and shops', () async {
+      // Save alias for a shop
+      await repo.saveMerchantAlias('RAMESH CANTEEN PVT LTD', 'Ramesh Canteen');
+      final alias = await repo.getMerchantAlias('RAMESH CANTEEN PVT LTD');
+      expect(alias, 'Ramesh Canteen');
+
+      // Substring lookup works
+      final subAlias = await repo.getMerchantAlias('ramesh canteen');
+      expect(subAlias, 'Ramesh Canteen');
+
+      // Adding pending transaction with raw name automatically resolves to friendly alias
+      final item = PendingTransaction(
+        id: 'p-alias-1',
+        amountPaise: 15000,
+        direction: Direction.debit,
+        occurredAtMs: DateTime.now().millisecondsSinceEpoch,
+        localDate: LocalDate.today(),
+        merchant: 'RAMESH CANTEEN PVT LTD',
+        rawSource: 'slice_email',
+        messageId: 'msg-alias-1@slice.bank.in',
+      );
+      final inserted = await repo.addPendingTransactions([item]);
+      expect(inserted.first.merchant, 'Ramesh Canteen');
+
+      // Approving with a renamed merchant saves alias automatically
+      final personItem = PendingTransaction(
+        id: 'p-alias-2',
+        amountPaise: 35000,
+        direction: Direction.credit,
+        occurredAtMs: DateTime.now().millisecondsSinceEpoch,
+        localDate: LocalDate.today(),
+        merchant: 'SNEH NIPOON SHETH',
+        rawSource: 'slice_email',
+        messageId: 'msg-alias-2@slice.bank.in',
+      );
+      await repo.addPendingTransactions([personItem]);
+      await repo.approvePendingTransaction(
+        personItem,
+        categoryId: 'income',
+        bucket: Bucket.daily,
+        merchant: 'Sneh',
+      );
+
+      final personAlias = await repo.getMerchantAlias('SNEH NIPOON SHETH');
+      expect(personAlias, 'Sneh');
+    });
+
+    test('Ledger.resolveMerchantName resolves aliases and heuristics for friends', () {
+      final ledger = Ledger(
+        settings: const Settings(stipendPaise: 100000, cycleStartDay: 1, hideAmounts: false, onboarded: true),
+        categories: const [],
+        transactions: const [],
+        outings: const [],
+        savedFriends: const ['Sneh', 'Rahul', 'Surya'],
+        merchantAliases: const {
+          'ramesh canteen pvt ltd': 'Ramesh Canteen',
+          'swiggy instamart': 'Instamart',
+        },
+      );
+
+      // 1. Exact alias
+      expect(ledger.resolveMerchantName('ramesh canteen pvt ltd'), 'Ramesh Canteen');
+
+      // 2. Substring alias
+      expect(ledger.resolveMerchantName('SWIGGY INSTAMART HYD'), 'Instamart');
+
+      // 3. Friend heuristic from saved friends (e.g. Sneh)
+      expect(ledger.resolveMerchantName('SNEH NIPOON SHETH'), 'Sneh');
+      expect(ledger.resolveMerchantName('RAHUL SHARMA UPI'), 'Rahul');
+
+      // 4. Unknown merchant stays intact
+      expect(ledger.resolveMerchantName('UNKNOWN COFFEE SHOP'), 'UNKNOWN COFFEE SHOP');
+    });
   });
 }

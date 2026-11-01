@@ -29,6 +29,7 @@ class PendingInboxSheet extends ConsumerStatefulWidget {
 class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
   final Map<String, String> _selectedCategories = {};
   final Map<String, TextEditingController> _whatForControllers = {};
+  final Map<String, String> _customMerchants = {};
   bool _isSyncing = false;
 
   @override
@@ -204,6 +205,8 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
     PendingTransaction item,
     List<Category> categories,
   ) {
+    final ledger = ref.watch(ledgerProvider).valueOrNull;
+
     // Current selected category for this card (defaults to suggestedCategoryId, or first available)
     final selectedCatId = _selectedCategories[item.id] ??
         item.suggestedCategoryId ??
@@ -211,6 +214,11 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
 
     final hasMemoryMatch = item.suggestedCategoryId != null &&
         item.suggestedCategoryId == selectedCatId;
+
+    final effectiveDisplayName = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final hasLearnedAlias = effectiveDisplayName.trim().toLowerCase() != item.merchant.trim().toLowerCase();
 
     final dateFormatted = DateFormat('d MMM, h:mm a').format(item.occurredAt);
 
@@ -239,36 +247,57 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                   children: [
                     Row(
                       children: [
-                        if (item.direction == Direction.credit) ...[
-                          Text(
-                            'From: ',
-                            style: TypeScale.title(t.inkSoft).copyWith(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
+                        Text(
+                          item.direction == Direction.credit ? 'From: ' : 'To: ',
+                          style: TypeScale.title(t.inkSoft).copyWith(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ] else ...[
-                          Text(
-                            'To: ',
-                            style: TypeScale.title(t.inkSoft).copyWith(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                        ),
                         Expanded(
-                          child: Text(
-                            item.merchant,
-                            style: TypeScale.title(t.ink).copyWith(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(4),
+                            onTap: () => _promptRenameMerchant(t, item, effectiveDisplayName),
+                            child: Text(
+                              effectiveDisplayName,
+                              style: TypeScale.title(t.ink).copyWith(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.edit_outlined, size: 16, color: t.inkSoft),
+                          tooltip: 'Rename sender / shop',
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _promptRenameMerchant(t, item, effectiveDisplayName),
                         ),
                       ],
                     ),
+                    if (hasLearnedAlias) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(Icons.auto_awesome, size: 12, color: t.accent),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Learned alias for ${item.merchant}',
+                              style: TypeScale.caption(t.accent).copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 2),
                     Row(
                       children: [
@@ -374,8 +403,8 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
             cursorColor: t.accent,
             decoration: InputDecoration(
               hintText: item.direction == Direction.credit
-                  ? 'e.g. Received from ${item.merchant}'
-                  : 'e.g. Paid to ${item.merchant}',
+                  ? 'e.g. Received from $effectiveDisplayName'
+                  : 'e.g. Paid to $effectiveDisplayName',
               hintStyle: TypeScale.caption(t.inkSoft),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -504,12 +533,158 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
     );
   }
 
+  Future<void> _promptRenameMerchant(
+    PaperTokens t,
+    PendingTransaction item,
+    String currentDisplayName,
+  ) async {
+    final controller = TextEditingController(text: currentDisplayName);
+    bool rememberForFuture = true;
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final friendSuggestions = (ledger?.allFriendSuggestions ?? []).take(6).toList();
+
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.edit_note_rounded, color: t.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Rename Sender / Shop', style: TypeScale.heading(t.ink)),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Original: "${item.merchant}"',
+                style: TypeScale.caption(t.inkSoft).copyWith(fontStyle: FontStyle.italic),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: TypeScale.body(t.ink),
+                decoration: InputDecoration(
+                  labelText: 'Familiar Name',
+                  hintText: 'e.g. Sneh, Canteen, Instamart',
+                  labelStyle: TypeScale.caption(t.inkSoft),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                    borderSide: BorderSide(color: t.rule),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                    borderSide: BorderSide(color: t.accent),
+                  ),
+                ),
+              ),
+              if (friendSuggestions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Quick friend suggestions:', style: TypeScale.caption(t.inkSoft)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final friend in friendSuggestions)
+                      ActionChip(
+                        label: Text(friend, style: TypeScale.caption(t.ink)),
+                        avatar: Icon(Icons.person_outline, size: 14, color: t.accent),
+                        backgroundColor: t.card,
+                        onPressed: () {
+                          setDialogState(() {
+                            controller.text = friend;
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Checkbox(
+                    value: rememberForFuture,
+                    activeColor: t.accent,
+                    onChanged: (val) {
+                      setDialogState(() {
+                        rememberForFuture = val ?? true;
+                      });
+                    },
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setDialogState(() {
+                          rememberForFuture = !rememberForFuture;
+                        });
+                      },
+                      child: Text(
+                        'Remember this name for future transactions',
+                        style: TypeScale.caption(t.ink),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isNotEmpty) {
+                  Navigator.pop(ctx, text);
+                }
+              },
+              style: FilledButton.styleFrom(backgroundColor: t.accent),
+              child: Text('Save', style: TypeScale.body(Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _customMerchants[item.id] = result;
+      });
+      if (rememberForFuture) {
+        await ref.read(ledgerProvider.notifier).saveMerchantAlias(
+              rawMerchant: item.merchant,
+              displayName: result,
+            );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved memory: "${item.merchant}" will now appear as "$result"!'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _approveTopUp(PendingTransaction item) async {
     final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
-    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : item.merchant;
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
     final note = customWhatFor.isNotEmpty
         ? customWhatFor
-        : (item.merchant.isNotEmpty ? 'From ${item.merchant}' : 'Stipend Top-Up via Slice');
+        : (effectiveMerchant.isNotEmpty ? 'From $effectiveMerchant' : 'Stipend Top-Up via Slice');
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(
             item,
@@ -538,6 +713,9 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
   Future<void> _settleSplitFromInbox(PendingTransaction item) async {
     final t = TokenScope.of(context);
     final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
     final openSplits = (ledger?.friendSplits ?? [])
         .where((s) => !s.isSettled && s.direction == SplitDirection.youAreOwed)
         .toList();
@@ -545,8 +723,15 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
     FriendSplit? chosenSplit;
     if (openSplits.isNotEmpty) {
       final match = openSplits.cast<FriendSplit?>().firstWhere(
-            (s) => item.merchant.toLowerCase().contains(s!.friendName.toLowerCase()) ||
-                s.friendName.toLowerCase().contains(item.merchant.toLowerCase()),
+            (s) {
+              final fName = s!.friendName.toLowerCase();
+              final raw = item.merchant.toLowerCase();
+              final resolved = resolvedMerchant.toLowerCase();
+              return raw.contains(fName) ||
+                  fName.contains(raw) ||
+                  resolved.contains(fName) ||
+                  fName.contains(resolved);
+            },
             orElse: () => null,
           );
       if (match != null) {
@@ -563,7 +748,7 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Received ${Money.formatPaise(item.amountPaise)} from ${item.merchant}.\nSelect which friend split to clear (won\'t be added to daily spending balance):',
+              'Received ${Money.formatPaise(item.amountPaise)} from $resolvedMerchant.\nSelect which friend split to clear (won\'t be added to daily spending balance):',
               style: TypeScale.caption(t.inkSoft),
             ),
             const SizedBox(height: Space.x3),
@@ -611,10 +796,14 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
 
   Future<void> _approveJustMe(PendingTransaction item, String categoryId) async {
     final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
-    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : item.merchant;
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
     final note = customWhatFor.isNotEmpty
-        ? (item.merchant != customWhatFor ? 'Slice · ${item.merchant}' : 'Slice UPI')
-        : (item.direction == Direction.credit ? 'From ${item.merchant}' : 'Slice · ${item.merchant}');
+        ? (resolvedMerchant != customWhatFor ? 'Slice · $resolvedMerchant' : 'Slice UPI')
+        : (item.direction == Direction.credit ? 'From $resolvedMerchant' : 'Slice · $resolvedMerchant');
 
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(
@@ -643,7 +832,18 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
 
   Future<void> _splitWithFriends(PendingTransaction item, String categoryId) async {
     final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
-    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : item.merchant;
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
+    if (effectiveMerchant.isNotEmpty && effectiveMerchant.toLowerCase() != item.merchant.toLowerCase()) {
+      await ref.read(ledgerProvider.notifier).saveMerchantAlias(
+            rawMerchant: item.merchant,
+            displayName: effectiveMerchant,
+          );
+    }
+    if (!mounted) return;
     await showBillSplitSheet(
       context,
       totalAmountPaise: item.amountPaise,

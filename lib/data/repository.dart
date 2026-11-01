@@ -119,6 +119,7 @@ class PocketRepository {
   static final List<String> _webFriends = ['Surya', 'Punit', 'Sneh', 'Rahul'];
   static final List<PendingTransaction> _webPendingInbox = [];
   static final Map<String, String> _webMerchantMemory = {};
+  static final Map<String, String> _webMerchantAliases = {};
 
   Future<Ledger> load() async {
     if (_isInMemory) {
@@ -132,6 +133,7 @@ class PocketRepository {
         friendSplits: List.of(_webSplits),
         pendingInbox: List.of(_webPendingInbox.where((p) => p.status == InboxStatus.pending)),
         savedFriends: List.of(_webFriends),
+        merchantAliases: Map.of(_webMerchantAliases),
       );
     }
 
@@ -168,6 +170,7 @@ class PocketRepository {
         orderBy: 'occurred_at DESC',
       ),
       db.query('friends', orderBy: 'name COLLATE NOCASE ASC'),
+      db.query('merchant_aliases', orderBy: 'last_used_at DESC'),
     ]);
 
     final dedRows = results[0];
@@ -178,9 +181,14 @@ class PocketRepository {
     final splitRows = results[5];
     final inboxRows = results[6];
     final friendRows = results[7];
+    final aliasRows = results.length > 8 ? results[8] : const <Map<String, Object?>>[];
 
     final deductions = dedRows.map(_deductionFromRow).toList();
     final map = {for (final r in settingRows) r['key'] as String: r['value'] as String};
+    final aliasMap = {
+      for (final r in aliasRows)
+        (r['raw_merchant_clean'] as String? ?? ''): (r['display_name'] as String? ?? ''),
+    }..remove('');
 
     String appPassword = '';
     final encPassword = map['email_sync_app_password_enc'];
@@ -260,6 +268,7 @@ class PocketRepository {
       friendSplits: splits,
       pendingInbox: inbox,
       savedFriends: savedFriends,
+      merchantAliases: aliasMap,
     );
   }
 
@@ -1328,18 +1337,69 @@ class PocketRepository {
     );
   }
 
+  Future<String?> getMerchantAlias(String rawMerchant) async {
+    final clean = rawMerchant.trim().toLowerCase();
+    if (clean.isEmpty) return null;
+    if (_isInMemory) {
+      if (_webMerchantAliases.containsKey(clean)) return _webMerchantAliases[clean];
+      for (final e in _webMerchantAliases.entries) {
+        if (clean == e.key || clean.contains(e.key) || e.key.contains(clean)) return e.value;
+      }
+      return null;
+    }
+    final db = await _db.db;
+    final res = await db.query(
+      'merchant_aliases',
+      columns: ['display_name', 'raw_merchant_clean'],
+      orderBy: 'last_used_at DESC',
+    );
+    for (final r in res) {
+      final key = r['raw_merchant_clean'] as String? ?? '';
+      final val = r['display_name'] as String? ?? '';
+      if (key.isNotEmpty && (clean == key || clean.contains(key) || key.contains(clean))) {
+        return val;
+      }
+    }
+    return null;
+  }
+
+  Future<void> saveMerchantAlias(String rawMerchant, String displayName) async {
+    final cleanRaw = rawMerchant.trim().toLowerCase();
+    final cleanDisplay = displayName.trim();
+    if (cleanRaw.isEmpty || cleanDisplay.isEmpty || cleanRaw == cleanDisplay.toLowerCase()) return;
+
+    if (_isInMemory) {
+      _webMerchantAliases[cleanRaw] = cleanDisplay;
+      return;
+    }
+    final db = await _db.db;
+    await db.insert(
+      'merchant_aliases',
+      {
+        'raw_merchant_clean': cleanRaw,
+        'display_name': cleanDisplay,
+        'last_used_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<List<PendingTransaction>> addPendingTransactions(List<PendingTransaction> txns) async {
     final inserted = <PendingTransaction>[];
     for (final t in txns) {
       if (t.messageId != null && await isEmailMessageProcessed(t.messageId!)) {
         continue;
       }
+      final alias = await getMerchantAlias(t.merchant);
+      final effectiveMerchant = alias ?? t.merchant;
+
       var suggested = t.suggestedCategoryId;
       if (suggested == null || suggested.isEmpty) {
-        suggested = await getMerchantCategory(t.merchant);
+        suggested = await getMerchantCategory(effectiveMerchant) ?? await getMerchantCategory(t.merchant);
       }
       final toAdd = t.copyWith(
         id: t.id.isEmpty ? _uuid.v4() : t.id,
+        merchant: effectiveMerchant,
         suggestedCategoryId: suggested,
       );
 
@@ -1380,6 +1440,10 @@ class PocketRepository {
     );
 
     await recordMerchantCategory(pending.merchant, categoryId);
+    if (effectiveMerchant.isNotEmpty && effectiveMerchant.toLowerCase() != pending.merchant.toLowerCase()) {
+      await saveMerchantAlias(pending.merchant, effectiveMerchant);
+      await recordMerchantCategory(effectiveMerchant, categoryId);
+    }
 
     if (_isInMemory) {
       final idx = _webPendingInbox.indexWhere((p) => p.id == pending.id);

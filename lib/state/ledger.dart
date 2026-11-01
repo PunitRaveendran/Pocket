@@ -428,6 +428,15 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     }
   }
 
+  /// Learns and stores a user-friendly display name alias for a raw bank sender or shop name.
+  Future<void> saveMerchantAlias({
+    required String rawMerchant,
+    required String displayName,
+  }) async {
+    await _repo.saveMerchantAlias(rawMerchant, displayName);
+    await _reload();
+  }
+
   /// Compacts and defragments database pages and re-optimizes query planner statistics.
   Future<void> optimizeStorage() async {
     await _repo.optimizeDatabase();

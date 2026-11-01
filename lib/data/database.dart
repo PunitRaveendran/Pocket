@@ -22,7 +22,7 @@ class PocketDatabase {
     final path = await dbPath;
     _db = await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onConfigure: (db) async {
         try {
           await db.execute('PRAGMA foreign_keys = ON;');
@@ -139,6 +139,15 @@ class PocketDatabase {
           )
         ''');
         await db.execute('CREATE INDEX idx_friends_name ON friends(name)');
+
+        await db.execute('''
+          CREATE TABLE merchant_aliases (
+            raw_merchant_clean TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            last_used_at INTEGER NOT NULL
+          )
+        ''');
+        await db.execute('CREATE INDEX idx_merchant_aliases_clean ON merchant_aliases(raw_merchant_clean)');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -209,6 +218,16 @@ class PocketDatabase {
             )
           ''');
           await db.execute('CREATE INDEX IF NOT EXISTS idx_friends_name ON friends(name)');
+        }
+        if (oldVersion < 7) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS merchant_aliases (
+              raw_merchant_clean TEXT PRIMARY KEY,
+              display_name TEXT NOT NULL,
+              last_used_at INTEGER NOT NULL
+            )
+          ''');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_merchant_aliases_clean ON merchant_aliases(raw_merchant_clean)');
         }
       },
       onOpen: (db) async {

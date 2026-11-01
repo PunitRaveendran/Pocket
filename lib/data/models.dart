@@ -517,6 +517,7 @@ class Ledger {
     this.friendSplits = const [],
     this.pendingInbox = const [],
     this.savedFriends = const [],
+    this.merchantAliases = const {},
   });
 
   final Settings settings;
@@ -526,6 +527,7 @@ class Ledger {
   final List<FriendSplit> friendSplits;
   final List<PendingTransaction> pendingInbox;
   final List<String> savedFriends;
+  final Map<String, String> merchantAliases;
 
   List<Txn> get liveTxns => transactions;
 
@@ -546,6 +548,37 @@ class Ledger {
       }
     }
     return result;
+  }
+
+  /// Resolves raw bank sender/receiver name (e.g. "SNEH NIPOON SHETH", "SWIGGY INSTAMART HYD")
+  /// to user's learned friendly display alias (e.g. "Sneh", "Instamart").
+  String resolveMerchantName(String raw) {
+    final clean = raw.trim().toLowerCase();
+    if (clean.isEmpty) return raw;
+
+    // 1. Exact match in learned aliases
+    if (merchantAliases.containsKey(clean)) {
+      return merchantAliases[clean]!;
+    }
+
+    // 2. Substring match
+    for (final entry in merchantAliases.entries) {
+      if (entry.key.isEmpty) continue;
+      if (clean == entry.key || clean.contains(entry.key) || entry.key.contains(clean)) {
+        return entry.value;
+      }
+    }
+
+    // 3. Match against friend suggestions if friend's name is a distinct word in raw name
+    final rawWords = clean.split(RegExp(r'\s+')).where((w) => w.length >= 3).toList();
+    for (final f in allFriendSuggestions) {
+      final fLower = f.toLowerCase();
+      if (rawWords.contains(fLower)) {
+        return f;
+      }
+    }
+
+    return raw;
   }
 
   int get totalOwedToMePaise => friendSplits
@@ -580,6 +613,7 @@ class Ledger {
     List<FriendSplit>? friendSplits,
     List<PendingTransaction>? pendingInbox,
     List<String>? savedFriends,
+    Map<String, String>? merchantAliases,
   }) {
     return Ledger(
       settings: settings ?? this.settings,
@@ -589,6 +623,7 @@ class Ledger {
       friendSplits: friendSplits ?? this.friendSplits,
       pendingInbox: pendingInbox ?? this.pendingInbox,
       savedFriends: savedFriends ?? this.savedFriends,
+      merchantAliases: merchantAliases ?? this.merchantAliases,
     );
   }
 }
