@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/backup.dart';
 import '../../core/biometrics.dart';
@@ -1046,37 +1049,102 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final t = TokenScope.of(context);
     final controller = TextEditingController();
 
+    try {
+      final clip = await Clipboard.getData('text/plain');
+      if (clip?.text != null && clip!.text!.trim().startsWith('{')) {
+        controller.text = clip.text!.trim();
+      }
+    } catch (_) {}
+
+    if (controller.text.isEmpty) {
+      final candidates = [
+        '/data/local/tmp/backup.json',
+        '/storage/emulated/0/Android/data/app.pocket.pocket/files/backup.json',
+        '/sdcard/Android/data/app.pocket.pocket/files/backup.json',
+      ];
+      for (final path in candidates) {
+        try {
+          final f = File(path);
+          if (await f.exists()) {
+            final content = await f.readAsString();
+            if (content.trim().startsWith('{')) {
+              controller.text = content.trim();
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+      if (controller.text.isEmpty) {
+        try {
+          final docs = await getApplicationDocumentsDirectory();
+          final f = File(p.join(docs.path, 'backup.json'));
+          if (await f.exists()) {
+            final content = await f.readAsString();
+            if (content.trim().startsWith('{')) {
+              controller.text = content.trim();
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!context.mounted) return;
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Restore from Backup', style: TypeScale.heading(t.ink)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Warning: Restoring will overwrite all current local data with the contents of the backup snapshot.',
-              style: TypeScale.caption(t.over),
-            ),
-            const SizedBox(height: Space.x3),
-            TextField(
-              controller: controller,
-              maxLines: 5,
-              style: TypeScale.caption(t.ink).copyWith(fontFamily: 'monospace'),
-              decoration: InputDecoration(
-                hintText: 'Paste backup JSON snapshot here...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Text('Restore from Backup', style: TypeScale.heading(t.ink)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Warning: Restoring will overwrite all current local data with the contents of the backup snapshot.',
+                style: TypeScale.caption(t.over),
               ),
+              const SizedBox(height: Space.x2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: Icon(Icons.content_paste, size: 14, color: t.accent),
+                    label: Text('Paste from Clipboard', style: TypeScale.caption(t.accent)),
+                    onPressed: () async {
+                      final clip = await Clipboard.getData('text/plain');
+                      if (clip?.text != null) {
+                        setDlgState(() {
+                          controller.text = clip!.text!.trim();
+                        });
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: Space.x1),
+              TextField(
+                controller: controller,
+                maxLines: 5,
+                style: TypeScale.caption(t.ink).copyWith(fontFamily: 'monospace'),
+                decoration: InputDecoration(
+                  hintText: 'Paste backup JSON snapshot here...',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(Space.controlRadius)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft))),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Restore Now', style: TypeScale.body(t.accent)),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft))),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Restore Now', style: TypeScale.body(t.accent)),
-          ),
-        ],
       ),
     );
 

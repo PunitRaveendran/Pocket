@@ -74,59 +74,90 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
                       'Trips and nights out sit here. They are tracked separately so they don’t reduce your daily food allowance.',
                       style: TypeScale.body(t.inkSoft),
                     ),
-                    const SizedBox(height: Space.x6),
-                    Semantics(
-                      label: '${Money.spokenRupees(displayAmount)} $displayLabel',
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          Money.formatPaise(displayAmount, hide: hide),
-                          style: TypeScale.figure(t.ink),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Semantics(
+                                label: '${Money.spokenRupees(displayAmount)} $displayLabel',
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    Money.formatPaise(displayAmount, hide: hide),
+                                    style: TypeScale.figure(t.ink),
+                                  ),
+                                ),
+                              ),
+                              Text(displayLabel, style: TypeScale.body(t.inkSoft)),
+                            ],
+                          ),
                         ),
-                      ),
+                        Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: t.card,
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                            border: Border.all(color: t.rule),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              InkWell(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _filter = OutingsFilter.thisMonth);
+                                },
+                                borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: _filter == OutingsFilter.thisMonth ? t.accentTint : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                  ),
+                                  child: Text(
+                                    'This Month',
+                                    style: TypeScale.caption(
+                                      _filter == OutingsFilter.thisMonth ? t.accent : t.inkSoft,
+                                    ).copyWith(
+                                      fontWeight: _filter == OutingsFilter.thisMonth ? FontWeight.w700 : FontWeight.w500,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              InkWell(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _filter = OutingsFilter.allTime);
+                                },
+                                borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: _filter == OutingsFilter.allTime ? t.accentTint : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                  ),
+                                  child: Text(
+                                    'All Outings',
+                                    style: TypeScale.caption(
+                                      _filter == OutingsFilter.allTime ? t.accent : t.inkSoft,
+                                    ).copyWith(
+                                      fontWeight: _filter == OutingsFilter.allTime ? FontWeight.w700 : FontWeight.w500,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(displayLabel, style: TypeScale.body(t.inkSoft)),
-                    if (allGroups.isNotEmpty) ...[
-                      const SizedBox(height: Space.x4),
-                      Row(
-                        children: [
-                          ChoiceChip(
-                            selected: _filter == OutingsFilter.thisMonth,
-                            onSelected: (val) {
-                              HapticFeedback.selectionClick();
-                              setState(() => _filter = OutingsFilter.thisMonth);
-                            },
-                            label: Text('This Month (${Money.formatPaise(extraCycle, hide: hide)})'),
-                            selectedColor: t.accent.withValues(alpha: 0.15),
-                            labelStyle: TypeScale.caption(
-                              _filter == OutingsFilter.thisMonth ? t.accent : t.inkSoft,
-                            ),
-                            backgroundColor: t.card,
-                            side: BorderSide(
-                              color: _filter == OutingsFilter.thisMonth ? t.accent : t.rule,
-                            ),
-                          ),
-                          const SizedBox(width: Space.x2),
-                          ChoiceChip(
-                            selected: _filter == OutingsFilter.allTime,
-                            onSelected: (val) {
-                              HapticFeedback.selectionClick();
-                              setState(() => _filter = OutingsFilter.allTime);
-                            },
-                            label: Text('All Outings (${allGroups.length})'),
-                            selectedColor: t.accent.withValues(alpha: 0.15),
-                            labelStyle: TypeScale.caption(
-                              _filter == OutingsFilter.allTime ? t.accent : t.inkSoft,
-                            ),
-                            backgroundColor: t.card,
-                            side: BorderSide(
-                              color: _filter == OutingsFilter.allTime ? t.accent : t.rule,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                     const SizedBox(height: Space.x6),
                     PrimaryButton(
                       label: Copy.addOuting,
