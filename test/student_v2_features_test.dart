@@ -769,31 +769,22 @@ void main() {
       final remainingBefore = effectiveStipendForCycle(initialLedger, cycle) - ordinaryThisCycle(initialLedger, cycle);
       expect(remainingBefore, 250000);
 
-      // User wants their account balance to be fixed to ₹3,500 (targetPaise = 350000)
-      const targetPaise = 350000;
-      final spent = ordinaryThisCycle(initialLedger, cycle);
-      final rollover = rolloverSavingsFromPreviousCycle(initialLedger, cycle);
-      final topUps = extraTopUpForCycle(initialLedger, cycle);
-      final fixed = initialLedger.settings.totalFixedDeductionsPaise;
-
-      final newStipendPaise = (targetPaise + spent + fixed - rollover - topUps).clamp(0, 999999999);
-      expect(newStipendPaise, 400000); // Base stipend becomes ₹4,000
+      // User directly updates their monthly balance to ₹1,000 (targetPaise = 100000)
+      const targetPaise = 100000;
 
       final adjustedLedger = Ledger(
-        settings: initialLedger.settings.copyWith(stipendPaise: newStipendPaise),
+        settings: initialLedger.settings.copyWith(stipendPaise: targetPaise),
         categories: initialLedger.categories,
         transactions: initialLedger.transactions, // ZERO new transactions added!
         outings: initialLedger.outings,
       );
 
-      // Spending is completely unchanged (still ₹500, not ₹0 or negative or extra)
+      // Monthly stipend is directly set to ₹1,000 (NOT reduced to 60 or distorted)
+      expect(adjustedLedger.settings.stipendPaise, 100000);
+      // Spending is completely unchanged (still ₹500, zero fake transactions)
       expect(ordinaryThisCycle(adjustedLedger, cycle), 50000);
       expect(adjustedLedger.transactions.length, 1);
       expect(adjustedLedger.transactions.first.merchant, 'Canteen');
-
-      // Remaining balance now accurately equals the target ₹3,500!
-      final remainingAfter = effectiveStipendForCycle(adjustedLedger, cycle) - ordinaryThisCycle(adjustedLedger, cycle);
-      expect(remainingAfter, 350000);
     });
   });
 }

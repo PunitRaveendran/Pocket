@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
@@ -20,11 +19,6 @@ Future<void> showAdjustBalanceSheet(BuildContext context) {
   );
 }
 
-enum BalanceMode {
-  currentBalance, // Set current available money in account/wallet
-  monthlyStipend, // Set base monthly stipend in settings
-}
-
 class AdjustBalanceSheet extends ConsumerStatefulWidget {
   const AdjustBalanceSheet({super.key});
 
@@ -33,7 +27,6 @@ class AdjustBalanceSheet extends ConsumerStatefulWidget {
 }
 
 class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
-  BalanceMode _mode = BalanceMode.currentBalance;
   late AmountValue _amount;
   bool _initialized = false;
 
@@ -46,25 +39,17 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
 
     final today = LocalDate.today();
     final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
-    final cycleStipend = effectiveStipendForCycle(ledger, cycle);
-    final spentThisCycle = ordinaryThisCycle(ledger, cycle);
-    final currentRemaining = cycleStipend - spentThisCycle;
     final rolloverPaise = rolloverSavingsFromPreviousCycle(ledger, cycle);
-
     final currentStipendPaise = ledger.settings.stipendPaise;
 
     if (!_initialized) {
-      final initialPaise = _mode == BalanceMode.currentBalance
-          ? (currentRemaining > 0 ? currentRemaining : 0)
-          : currentStipendPaise;
+      // Default to the current monthly stipend if valid (> 6000), otherwise prefill ₹1,000
+      final initialPaise = currentStipendPaise > 6000 ? currentStipendPaise : 100000;
       _amount = AmountValue.fromPaise(initialPaise);
       _initialized = true;
     }
 
     final targetPaise = _amount.paiseTotal;
-    final diffPaise = _mode == BalanceMode.currentBalance
-        ? targetPaise - currentRemaining
-        : targetPaise - currentStipendPaise;
 
     return Container(
       constraints: BoxConstraints(
@@ -112,9 +97,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                       children: [
                         Text('Modify Account Balance', style: TypeScale.title(t.ink)),
                         Text(
-                          _mode == BalanceMode.currentBalance
-                              ? 'Set your actual remaining pocket money balance'
-                              : 'Set your regular monthly pocket money base',
+                          'Directly set your monthly pocket money balance',
                           style: TypeScale.caption(t.inkSoft),
                         ),
                       ],
@@ -126,81 +109,9 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                   ),
                 ],
               ),
-              const SizedBox(height: Space.x4),
+              const SizedBox(height: Space.x3),
 
-              // Segmented Mode Selector
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: t.card,
-                  borderRadius: BorderRadius.circular(Space.controlRadius),
-                  border: Border.all(color: t.rule),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() {
-                            _mode = BalanceMode.currentBalance;
-                            _amount = AmountValue.fromPaise(
-                              currentRemaining > 0 ? currentRemaining : 0,
-                            );
-                          });
-                        },
-                        borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _mode == BalanceMode.currentBalance ? t.accentTint : Colors.transparent,
-                            borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            'Remaining Balance',
-                            style: TypeScale.caption(
-                              _mode == BalanceMode.currentBalance ? t.accent : t.inkSoft,
-                            ).copyWith(
-                              fontWeight: _mode == BalanceMode.currentBalance ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() {
-                            _mode = BalanceMode.monthlyStipend;
-                            _amount = AmountValue.fromPaise(currentStipendPaise);
-                          });
-                        },
-                        borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _mode == BalanceMode.monthlyStipend ? t.accentTint : Colors.transparent,
-                            borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            'Monthly Stipend',
-                            style: TypeScale.caption(
-                              _mode == BalanceMode.monthlyStipend ? t.accent : t.inkSoft,
-                            ).copyWith(
-                              fontWeight: _mode == BalanceMode.monthlyStipend ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               if (rolloverPaise > 0) ...[
-                const SizedBox(height: Space.x2),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
@@ -223,14 +134,14 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                     ],
                   ),
                 ),
+                const SizedBox(height: Space.x2),
               ],
-              const SizedBox(height: Space.x4),
 
               // Live Amount Display
               Center(child: AmountDisplay(value: _amount)),
               const SizedBox(height: Space.x2),
 
-              // Comparison note
+              // Reassuring explanation (never negative warnings or deduction messages)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
@@ -240,25 +151,13 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      diffPaise == 0
-                          ? Icons.check_circle_outline
-                          : (diffPaise > 0 ? Icons.trending_up : Icons.trending_down),
-                      size: 16,
-                      color: diffPaise == 0 ? t.inkSoft : (diffPaise > 0 ? t.accent : t.over),
-                    ),
+                    Icon(Icons.check_circle_outline, size: 16, color: t.accent),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _mode == BalanceMode.currentBalance
-                            ? (diffPaise == 0
-                                ? 'Matches current remaining monthly balance (${Money.formatPaise(currentRemaining)})'
-                                : (diffPaise > 0
-                                    ? 'Adjustment: +${Money.formatPaise(diffPaise)} will be added to balance'
-                                    : 'Adjustment: -${Money.formatPaise(diffPaise.abs())} will be deducted to balance'))
-                            : (diffPaise == 0
-                                ? 'Matches current base stipend (${Money.formatPaise(currentStipendPaise)})${rolloverPaise > 0 ? " (+₹${rolloverPaise ~/ 100} rollover active)" : ""}'
-                                : 'Will update monthly base from ${Money.formatPaise(currentStipendPaise)} to ${Money.formatPaise(targetPaise)}${rolloverPaise > 0 ? " (+₹${rolloverPaise ~/ 100} rollover stays active)" : ""}'),
+                        targetPaise == currentStipendPaise
+                            ? 'Matches current monthly stipend (${Money.formatPaise(currentStipendPaise)})'
+                            : 'Sets monthly pocket money balance directly to ${Money.formatPaise(targetPaise)} with zero spending entries',
                         style: TypeScale.caption(t.inkSoft),
                       ),
                     ),
@@ -276,10 +175,8 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
 
               // Confirm Button
               PrimaryButton(
-                label: _mode == BalanceMode.currentBalance
-                    ? 'Set Balance to ${Money.formatPaise(targetPaise)}'
-                    : 'Save Base Stipend (${Money.formatPaise(targetPaise)})',
-                onPressed: () => _applyChange(context, ledger, currentRemaining, currentStipendPaise),
+                label: 'Set Balance to ${Money.formatPaise(targetPaise)}',
+                onPressed: () => _applyChange(context, ledger),
               ),
               const SizedBox(height: Space.x2),
             ],
@@ -289,58 +186,20 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
     );
   }
 
-  Future<void> _applyChange(
-    BuildContext context,
-    Ledger ledger,
-    int currentRemaining,
-    int currentStipendPaise,
-  ) async {
+  Future<void> _applyChange(BuildContext context, Ledger ledger) async {
     final targetPaise = _amount.paiseTotal;
+    if (targetPaise <= 0) return;
 
-    if (_mode == BalanceMode.monthlyStipend) {
-      await ref.read(ledgerProvider.notifier).updateSettings(
-            ledger.settings.copyWith(stipendPaise: targetPaise),
-          );
-      if (context.mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Monthly base stipend updated to ${Money.formatPaise(targetPaise)}!'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-      return;
-    }
-
-    // BalanceMode.currentBalance: Fix the account amount without reflecting in spending
-    final diff = targetPaise - currentRemaining;
-    if (diff == 0) {
-      Navigator.pop(context);
-      return;
-    }
-
-    final today = LocalDate.today();
-    final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
-    final spentThisCycle = ordinaryThisCycle(ledger, cycle);
-    final rolloverPaise = rolloverSavingsFromPreviousCycle(ledger, cycle);
-    final topUps = extraTopUpForCycle(ledger, cycle);
-    final fixedDeductions = ledger.settings.totalFixedDeductionsPaise;
-
-    // Adjust base stipend in settings so the calculated remaining balance
-    // exactly equals the user's desired amount, with zero fake spending transactions.
-    final newStipendPaise = (targetPaise + spentThisCycle + fixedDeductions - rolloverPaise - topUps)
-        .clamp(0, 999999999);
-
+    // Directly set the monthly pocket money stipend to the user's desired amount
     await ref.read(ledgerProvider.notifier).updateSettings(
-          ledger.settings.copyWith(stipendPaise: newStipendPaise),
+          ledger.settings.copyWith(stipendPaise: targetPaise),
         );
 
     if (context.mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Account balance set to ${Money.formatPaise(targetPaise)}!'),
+          content: Text('Account balance updated to ${Money.formatPaise(targetPaise)}!'),
           duration: const Duration(seconds: 2),
         ),
       );
