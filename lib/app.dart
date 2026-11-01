@@ -2,77 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'core/biometrics.dart';
 import 'data/models.dart';
 import 'state/ledger.dart';
 import 'theme/app_theme.dart';
 import 'theme/tokens.dart';
+import 'ui/auth/auth_gate.dart';
 import 'ui/onboarding/onboarding_screen.dart';
 import 'ui/shell.dart';
-import 'ui/widgets/lock_screen.dart';
 
-class PocketApp extends ConsumerStatefulWidget {
+class PocketApp extends ConsumerWidget {
   const PocketApp({super.key});
 
   @override
-  ConsumerState<PocketApp> createState() => _PocketAppState();
-}
-
-class _PocketAppState extends ConsumerState<PocketApp> with WidgetsBindingObserver {
-  bool _isUnlocked = false;
-  bool _isAuthenticating = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      // Re-lock when app moves to background
-      final ledger = ref.read(ledgerProvider).valueOrNull;
-      if (ledger?.settings.biometricEnabled == true) {
-        if (_isUnlocked) {
-          setState(() {
-            _isUnlocked = false;
-          });
-        }
-      }
-    } else if (state == AppLifecycleState.resumed) {
-      final ledger = ref.read(ledgerProvider).valueOrNull;
-      if (ledger?.settings.biometricEnabled == true && !_isUnlocked && !_isAuthenticating) {
-        _authenticate();
-      }
-    }
-  }
-
-  Future<void> _authenticate() async {
-    if (_isAuthenticating) return;
-    _isAuthenticating = true;
-    try {
-      final success = await BiometricService.instance.authenticate(
-        reason: 'Unlock Pocket to access your ledger',
-      );
-      if (mounted && success) {
-        setState(() {
-          _isUnlocked = true;
-        });
-      }
-    } finally {
-      _isAuthenticating = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final systemBrightness = MediaQuery.platformBrightnessOf(context);
     final ledger = ref.watch(ledgerProvider);
     final appThemeMode = ledger.value?.settings.appThemeMode ?? AppThemeMode.system;
@@ -135,17 +77,9 @@ class _PocketAppState extends ConsumerState<PocketApp> with WidgetsBindingObserv
             backgroundColor: tokens.paper,
             body: Center(child: Text('$e')),
           ),
-          data: (data) {
-            if (!data.settings.onboarded) {
-              return const OnboardingScreen();
-            }
-            if (data.settings.biometricEnabled && !_isUnlocked) {
-              return LockScreen(
-                onUnlock: _authenticate,
-              );
-            }
-            return const AppShell();
-          },
+          data: (data) => data.settings.onboarded
+              ? const AuthGate(child: AppShell())
+              : const OnboardingScreen(),
         ),
       ),
     );

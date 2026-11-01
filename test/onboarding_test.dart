@@ -78,7 +78,7 @@ void main() {
 
       // Step 1: Cycle Start Day
       expect(find.text('When does your month start?'), findsOneWidget);
-      expect(find.text('1st'), findsOneWidget);
+      expect(find.textContaining('1st'), findsOneWidget);
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 

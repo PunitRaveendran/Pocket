@@ -3,10 +3,10 @@ import 'package:local_auth/local_auth.dart';
 
 /// Biometric authentication helper for Pocket using local_auth.
 class BiometricService {
-  BiometricService._();
+  BiometricService._({LocalAuthentication? auth}) : _auth = auth ?? LocalAuthentication();
   static final BiometricService instance = BiometricService._();
 
-  final LocalAuthentication _auth = LocalAuthentication();
+  final LocalAuthentication _auth;
 
   /// Checks if the device has biometric hardware or screen lock security configured.
   Future<bool> isAvailable() async {
@@ -14,6 +14,8 @@ class BiometricService {
       final canCheck = await _auth.canCheckBiometrics;
       final isSupported = await _auth.isDeviceSupported();
       return canCheck || isSupported;
+    } on PlatformException {
+      return false;
     } catch (_) {
       return false;
     }
@@ -33,7 +35,7 @@ class BiometricService {
         sensitiveTransaction: true,
         persistAcrossBackgrounding: true,
       );
-    } on PlatformException catch (_) {
+    } on PlatformException {
       return false;
     } catch (_) {
       return false;
