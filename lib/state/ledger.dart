@@ -82,6 +82,7 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
           friendSplits: splits,
           pendingInbox: inbox,
           savedFriends: savedFriends,
+          merchantAliases: loaded.merchantAliases,
         ),
       );
     } else {
@@ -660,14 +661,14 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
 
   if (ledger.settings.leftoverPolicy == LeftoverPolicy.dynamicDistribute && cycle.contains(day)) {
     var spentBeforeWeek = 0;
-    for (var d = cycle.start; d.dateTime.isBefore(weekStart.dateTime); d = d.addDays(1)) {
-      for (final t in ledger.transactions) {
-        if (t.bucket == Bucket.daily && t.localDate == d) {
-          if (t.direction == Direction.debit) {
-            spentBeforeWeek += t.amountPaise;
-          } else if (t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
-            spentBeforeWeek -= t.amountPaise;
-          }
+    for (final t in ledger.transactions) {
+      if (t.bucket == Bucket.daily &&
+          !t.localDate.isBefore(cycle.start) &&
+          t.localDate.isBefore(weekStart)) {
+        if (t.direction == Direction.debit) {
+          spentBeforeWeek += t.amountPaise;
+        } else if (t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
+          spentBeforeWeek -= t.amountPaise;
         }
       }
     }

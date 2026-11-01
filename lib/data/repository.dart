@@ -1000,6 +1000,7 @@ class PocketRepository {
     required List<FriendSplit> friendSplits,
     List<String> savedFriends = const [],
     Map<String, int> systemCategorySortOrders = const {},
+    Map<String, String> merchantAliases = const {},
   }) async {
     if (_isInMemory) {
       _webSettings = settings;
@@ -1037,6 +1038,9 @@ class PocketRepository {
       _webFriends
         ..clear()
         ..addAll(allFriends.isNotEmpty ? allFriends : ['Surya', 'Punit', 'Sneh', 'Rahul']);
+      _webMerchantAliases
+        ..clear()
+        ..addAll(merchantAliases);
       return true;
     }
 
@@ -1044,6 +1048,7 @@ class PocketRepository {
     try {
       await db.transaction((txn) async {
         // 1. Wipe existing tables cleanly
+        await txn.delete('merchant_aliases');
         await txn.delete('fixed_deductions');
         await txn.delete('friend_splits');
         await txn.delete('friends');
@@ -1132,6 +1137,23 @@ class PocketRepository {
             },
             conflictAlgorithm: ConflictAlgorithm.ignore,
           );
+        }
+
+        // 10. Batch insert merchant aliases
+        for (final entry in merchantAliases.entries) {
+          final cleanKey = entry.key.trim().toLowerCase();
+          final display = entry.value.trim();
+          if (cleanKey.isNotEmpty && display.isNotEmpty) {
+            await txn.insert(
+              'merchant_aliases',
+              {
+                'raw_merchant_clean': cleanKey,
+                'display_name': display,
+                'last_used_at': DateTime.now().millisecondsSinceEpoch,
+              },
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
         }
       });
 
@@ -1355,15 +1377,28 @@ class PocketRepository {
       return null;
     }
     final db = await _db.db;
+    // Fast path: Exact match on primary key indexed column
+    final direct = await db.query(
+      'merchant_aliases',
+      columns: ['display_name'],
+      where: 'raw_merchant_clean = ?',
+      whereArgs: [clean],
+      limit: 1,
+    );
+    if (direct.isNotEmpty) {
+      return direct.first['display_name'] as String?;
+    }
+
     final res = await db.query(
       'merchant_aliases',
       columns: ['display_name', 'raw_merchant_clean'],
       orderBy: 'last_used_at DESC',
+      limit: 100,
     );
     for (final r in res) {
       final key = r['raw_merchant_clean'] as String? ?? '';
       final val = r['display_name'] as String? ?? '';
-      if (key.isNotEmpty && (clean == key || clean.contains(key) || key.contains(clean))) {
+      if (key.isNotEmpty && (clean.contains(key) || key.contains(clean))) {
         return val;
       }
     }
@@ -1392,34 +1427,62 @@ class PocketRepository {
   }
 
   Future<List<PendingTransaction>> addPendingTransactions(List<PendingTransaction> txns) async {
-    final inserted = <PendingTransaction>[];
-    for (final t in txns) {
-      if (t.messageId != null && await isEmailMessageProcessed(t.messageId!)) {
-        continue;
-      }
-      final alias = await getMerchantAlias(t.merchant);
-      final effectiveMerchant = alias ?? t.merchant;
+    if (txns.isEmpty) return const [];
+    if (_isInMemory) {
+      final inserted = <PendingTransaction>[];
+      for (final t in txns) {
+        if (t.messageId != null && _webPendingInbox.any((p) => p.messageId == t.messageId)) {
+          continue;
+        }
+        final alias = await getMerchantAlias(t.merchant);
+        final effectiveMerchant = alias ?? t.merchant;
 
-      var suggested = t.suggestedCategoryId;
-      if (suggested == null || suggested.isEmpty) {
-        suggested = await getMerchantCategory(effectiveMerchant) ?? await getMerchantCategory(t.merchant);
-      }
-      final toAdd = t.copyWith(
-        id: t.id.isEmpty ? _uuid.v4() : t.id,
-        merchant: effectiveMerchant,
-        suggestedCategoryId: suggested,
-      );
-
-      if (_isInMemory) {
+        var suggested = t.suggestedCategoryId;
+        if (suggested == null || suggested.isEmpty) {
+          suggested = await getMerchantCategory(effectiveMerchant) ?? await getMerchantCategory(t.merchant);
+        }
+        final toAdd = t.copyWith(
+          id: t.id.isEmpty ? _uuid.v4() : t.id,
+          merchant: effectiveMerchant,
+          suggestedCategoryId: suggested,
+        );
         _webPendingInbox.add(toAdd);
         inserted.add(toAdd);
-        continue;
       }
-
-      final db = await _db.db;
-      await db.insert('pending_inbox', _pendingToRow(toAdd), conflictAlgorithm: ConflictAlgorithm.ignore);
-      inserted.add(toAdd);
+      return inserted;
     }
+
+    final db = await _db.db;
+    final inserted = <PendingTransaction>[];
+    await db.transaction((txn) async {
+      for (final t in txns) {
+        if (t.messageId != null) {
+          final existing = await txn.query(
+            'pending_inbox',
+            where: 'message_id = ?',
+            whereArgs: [t.messageId],
+            limit: 1,
+          );
+          if (existing.isNotEmpty) continue;
+        }
+
+        final alias = await getMerchantAlias(t.merchant);
+        final effectiveMerchant = alias ?? t.merchant;
+
+        var suggested = t.suggestedCategoryId;
+        if (suggested == null || suggested.isEmpty) {
+          suggested = await getMerchantCategory(effectiveMerchant) ?? await getMerchantCategory(t.merchant);
+        }
+        final toAdd = t.copyWith(
+          id: t.id.isEmpty ? _uuid.v4() : t.id,
+          merchant: effectiveMerchant,
+          suggestedCategoryId: suggested,
+        );
+
+        await txn.insert('pending_inbox', _pendingToRow(toAdd), conflictAlgorithm: ConflictAlgorithm.ignore);
+        inserted.add(toAdd);
+      }
+    });
     return inserted;
   }
 

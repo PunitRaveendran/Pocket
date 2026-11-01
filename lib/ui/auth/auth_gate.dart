@@ -51,7 +51,8 @@ class _AuthGateState extends ConsumerState<AuthGate> with WidgetsBindingObserver
 
   Future<void> _checkAuth() async {
     final ledger = ref.read(ledgerProvider).valueOrNull;
-    if (ledger == null || !ledger.settings.biometricEnabled) {
+    if (ledger == null) return;
+    if (!ledger.settings.biometricEnabled) {
       if (mounted) setState(() => _unlocked = true);
       return;
     }
@@ -64,6 +65,12 @@ class _AuthGateState extends ConsumerState<AuthGate> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(ledgerProvider, (previous, next) {
+      if (!_unlocked && next.hasValue) {
+        _checkAuth();
+      }
+    });
+
     final ledger = ref.watch(ledgerProvider).valueOrNull;
     final enabled = ledger?.settings.biometricEnabled ?? false;
 

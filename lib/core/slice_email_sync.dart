@@ -95,21 +95,49 @@ class BankEmailSyncService {
             continue;
           }
 
-          final fetchRes = await client.fetchMessages(
+          // Performance Optimization: Fetch lightweight headers first to filter already-processed
+          // emails before downloading full message bodies over the network.
+          final headerRes = await client.fetchMessages(
             seq,
-            'BODY.PEEK[]',
+            '(UID BODY.PEEK[HEADER.FIELDS (Message-ID)])',
           );
 
-          for (final msg in fetchRes.messages) {
+          final unprocessedSeq = MessageSequence();
+          final messageIdBySeqId = <int, String>{};
+
+          for (final msg in headerRes.messages) {
             final rawId = msg.getHeaderValue('Message-ID') ?? msg.uid?.toString();
             final messageId = rawId?.trim();
+            final seqId = msg.sequenceId;
 
             if (messageId != null && messageId.isNotEmpty) {
               if (seenMessageIds.contains(messageId) || await isAlreadyProcessed(messageId)) {
                 continue;
               }
               seenMessageIds.add(messageId);
+              if (seqId != null) {
+                unprocessedSeq.add(seqId);
+                messageIdBySeqId[seqId] = messageId;
+              }
+            } else if (seqId != null) {
+              unprocessedSeq.add(seqId);
             }
+          }
+
+          if (unprocessedSeq.isEmpty) {
+            continue;
+          }
+
+          final fetchRes = await client.fetchMessages(
+            unprocessedSeq,
+            'BODY.PEEK[]',
+          );
+
+          for (final msg in fetchRes.messages) {
+            final seqId = msg.sequenceId;
+            final messageId = (seqId != null ? messageIdBySeqId[seqId] : null) ??
+                msg.getHeaderValue('Message-ID')?.trim() ??
+                msg.uid?.toString();
 
             final subject = msg.decodeSubject() ?? '';
             final plainText = msg.decodeTextPlainPart();
@@ -154,19 +182,26 @@ class BankEmailSyncService {
           await client.logout();
         } catch (_) {}
       }
+      if (client.isConnected) {
+        try {
+          await client.disconnect();
+        } catch (_) {}
+      }
     }
   }
 
-  /// Archives an email from Gmail INBOX by Message-ID.
-  /// Moves the message from INBOX to All Mail (or removes the \Inbox label).
-  Future<bool> archiveEmail({
+  /// Moves a processed email from Gmail INBOX to a Gmail label (defaulting to "Slice").
+  /// In Gmail IMAP, moving/copying a message to a label mailbox applies the label and removes it from INBOX.
+  Future<bool> moveEmailToLabel({
     required String email,
     required String appPassword,
     required String messageId,
+    String label = 'Slice',
   }) async {
     final cleanEmail = email.trim();
     final cleanPassword = appPassword.replaceAll(' ', '').trim();
     final cleanId = messageId.replaceAll(RegExp(r'[<>]'), '').trim();
+    final targetLabel = label.trim().isEmpty ? 'Slice' : label.trim();
 
     if (cleanEmail.isEmpty || cleanPassword.isEmpty || cleanId.isEmpty) {
       return false;
@@ -195,31 +230,70 @@ class BankEmailSyncService {
         return false;
       }
 
-      // Try finding All Mail box first
+      // Check existing mailboxes to locate the target label
       final mailboxes = await client.listMailboxes();
-      Mailbox? allMail;
+      Mailbox? targetMailbox;
+      final cleanLabelLower = targetLabel.toLowerCase();
       for (final m in mailboxes) {
-        if (m.hasFlag(MailboxFlag.all) ||
-            m.hasFlag(MailboxFlag.archive) ||
-            m.path == '[Gmail]/All Mail' ||
-            m.path == '[Google Mail]/All Mail') {
-          allMail = m;
+        if (m.name.toLowerCase() == cleanLabelLower ||
+            m.path.toLowerCase() == cleanLabelLower ||
+            m.path.toLowerCase().endsWith('/$cleanLabelLower')) {
+          targetMailbox = m;
           break;
         }
       }
 
-      var moved = false;
-      if (allMail != null) {
+      // If the label mailbox does not exist yet, try creating it in Gmail
+      if (targetMailbox == null) {
         try {
-          await client.move(seq, targetMailbox: allMail);
+          targetMailbox = await client.createMailbox(targetLabel);
+        } catch (_) {}
+      }
+
+      var moved = false;
+      try {
+        if (targetMailbox != null) {
+          await client.move(seq, targetMailbox: targetMailbox);
+        } else {
+          await client.move(seq, targetMailboxPath: targetLabel);
+        }
+        moved = true;
+      } catch (_) {
+        // Fallback: copy to label mailbox, then remove from INBOX (markDeleted & expunge)
+        try {
+          if (targetMailbox != null) {
+            await client.copy(seq, targetMailbox: targetMailbox);
+          } else {
+            await client.copy(seq, targetMailboxPath: targetLabel);
+          }
+          await client.markDeleted(seq);
+          await client.expunge();
           moved = true;
         } catch (_) {}
       }
 
       if (!moved) {
-        // In Gmail IMAP, marking deleted in INBOX and expunging removes the \Inbox label (archives it)
-        await client.markDeleted(seq);
-        await client.expunge();
+        // Fallback to All Mail / archive if moving to label failed
+        Mailbox? allMail;
+        for (final m in mailboxes) {
+          if (m.hasFlag(MailboxFlag.all) ||
+              m.hasFlag(MailboxFlag.archive) ||
+              m.path == '[Gmail]/All Mail' ||
+              m.path == '[Google Mail]/All Mail') {
+            allMail = m;
+            break;
+          }
+        }
+        if (allMail != null) {
+          try {
+            await client.move(seq, targetMailbox: allMail);
+            moved = true;
+          } catch (_) {}
+        }
+        if (!moved) {
+          await client.markDeleted(seq);
+          await client.expunge();
+        }
       }
 
       return true;
@@ -231,8 +305,26 @@ class BankEmailSyncService {
           await client.logout();
         } catch (_) {}
       }
+      if (client.isConnected) {
+        try {
+          await client.disconnect();
+        } catch (_) {}
+      }
     }
   }
+
+  /// Archives/labels an email from Gmail INBOX by Message-ID.
+  Future<bool> archiveEmail({
+    required String email,
+    required String appPassword,
+    required String messageId,
+    String label = 'Slice',
+  }) => moveEmailToLabel(
+    email: email,
+    appPassword: appPassword,
+    messageId: messageId,
+    label: label,
+  );
 }
 
 typedef SliceEmailSyncService = BankEmailSyncService;

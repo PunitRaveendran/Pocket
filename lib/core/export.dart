@@ -35,9 +35,14 @@ class LedgerExport {
   }
 
   static String _escapeCsv(String value) {
-    if (value.contains(',') || value.contains('"') || value.contains('\n')) {
-      return '"${value.replaceAll('"', '""')}"';
+    var v = value;
+    // Mitigate spreadsheet formula injection (=, +, -, @, \t)
+    if (v.isNotEmpty && (v.startsWith('=') || v.startsWith('+') || v.startsWith('-') || v.startsWith('@') || v.startsWith('\t'))) {
+      v = "'$v";
     }
-    return value;
+    if (v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r')) {
+      return '"${v.replaceAll('"', '""')}"';
+    }
+    return v;
   }
 }

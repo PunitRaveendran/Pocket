@@ -43,7 +43,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
     final t = TokenScope.of(context);
     final async = ref.watch(
       ledgerProvider.select(
-        (a) => a.whenData((l) => (l.settings, l.categories, l.transactions)),
+        (a) => a.whenData((l) => (l.settings, l.categories, l.transactions, l.merchantAliases, l.savedFriends)),
       ),
     );
 
@@ -51,12 +51,14 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Center(child: Text('$e')),
       data: (data) {
-        final (settings, categories, transactions) = data;
+        final (settings, categories, transactions, merchantAliases, savedFriends) = data;
         final ledger = Ledger(
           settings: settings,
           categories: categories,
           transactions: transactions,
           outings: const [],
+          merchantAliases: merchantAliases,
+          savedFriends: savedFriends,
         );
         final isWeekly = (_pacingOverride ?? ledger.settings.pacingMode) == PacingMode.weekly;
         final hide = ledger.settings.hideAmounts;

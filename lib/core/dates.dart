@@ -37,7 +37,7 @@ class LocalDate implements Comparable<LocalDate> {
 
   DateTime get dateTime => DateTime(year, month, day);
 
-  LocalDate addDays(int n) => LocalDate.fromDateTime(dateTime.add(Duration(days: n)));
+  LocalDate addDays(int n) => LocalDate.fromDateTime(DateTime(year, month, day + n));
 
   int get weekday => dateTime.weekday;
 

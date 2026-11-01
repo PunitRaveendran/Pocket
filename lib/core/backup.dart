@@ -82,6 +82,7 @@ class BackupService {
           }
       ],
       'saved_friends': ledger.savedFriends,
+      'merchant_aliases': ledger.merchantAliases,
     };
 
     return const JsonEncoder.withIndent('  ').convert(data);
@@ -259,7 +260,20 @@ class BackupService {
         }
       }
 
-      // 8. Atomic Restore: All validations passed! Perform transactional wipe + restore
+      // 8. Pre-validate Merchant Aliases
+      final aliasMap = decoded['merchant_aliases'];
+      final merchantAliases = <String, String>{};
+      if (aliasMap is Map) {
+        for (final entry in aliasMap.entries) {
+          final k = entry.key?.toString().trim().toLowerCase() ?? '';
+          final v = entry.value?.toString().trim() ?? '';
+          if (k.isNotEmpty && v.isNotEmpty) {
+            merchantAliases[k] = v;
+          }
+        }
+      }
+
+      // 9. Atomic Restore: All validations passed! Perform transactional wipe + restore
       return await repo.restoreSnapshot(
         settings: settings,
         customCategories: customCategories,
@@ -269,6 +283,7 @@ class BackupService {
         friendSplits: friendSplits,
         savedFriends: savedFriends,
         systemCategorySortOrders: systemCategorySortOrders,
+        merchantAliases: merchantAliases,
       );
     } catch (_) {
       return false;
