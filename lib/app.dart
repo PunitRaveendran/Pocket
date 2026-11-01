@@ -6,6 +6,7 @@ import 'data/models.dart';
 import 'state/ledger.dart';
 import 'theme/app_theme.dart';
 import 'theme/tokens.dart';
+import 'ui/auth/auth_gate.dart';
 import 'ui/onboarding/onboarding_screen.dart';
 import 'ui/shell.dart';
 
@@ -76,7 +77,9 @@ class PocketApp extends ConsumerWidget {
             backgroundColor: tokens.paper,
             body: Center(child: Text('$e')),
           ),
-          data: (data) => data.settings.onboarded ? const AppShell() : const OnboardingScreen(),
+          data: (data) => data.settings.onboarded
+              ? const AuthGate(child: AppShell())
+              : const OnboardingScreen(),
         ),
       ),
     );

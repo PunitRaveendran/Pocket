@@ -10,7 +10,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.security.KeyStore
@@ -19,7 +19,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val KEYSTORE_CHANNEL = "app.pocket.pocket/keystore"
     private val SMS_CHANNEL = "app.pocket.pocket/sms"
     private val KEY_ALIAS = "pocket_credentials_key"
