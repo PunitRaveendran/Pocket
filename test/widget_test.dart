@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pocket/core/dates.dart';
 import 'package:pocket/core/money.dart';
 import 'package:pocket/data/models.dart';
+import 'package:pocket/l10n/copy.dart';
 import 'package:pocket/state/ledger.dart';
 import 'package:pocket/theme/app_theme.dart';
 import 'package:pocket/theme/tokens.dart';
@@ -337,6 +338,65 @@ void main() {
     expect(find.text('Nandi Hills Trek'), findsOneWidget);
     expect(find.text('Trek Bus Fare'), findsOneWidget);
     expect(find.text('₹450'), findsWidgets);
+  });
+
+  testWidgets('OutingsScreen allows deleting spend with confirmation and UNDO', (tester) async {
+    final outing = Outing(
+      id: 'out_test',
+      title: 'Weekend Camp',
+      localDate: LocalDate.today(),
+      note: '',
+    );
+    final txn = Txn(
+      id: 't_camp_1',
+      amountPaise: 35000,
+      direction: Direction.debit,
+      occurredAtMs: DateTime.now().millisecondsSinceEpoch,
+      localDate: LocalDate.today(),
+      merchant: 'Tent Rental',
+      categoryId: 'misc',
+      bucket: Bucket.outing,
+      outingId: 'out_test',
+      note: 'Tent Rental',
+    );
+
+    final testLedger = Ledger(
+      settings: const Settings(stipendPaise: 100000, cycleStartDay: 1, hideAmounts: false, onboarded: true),
+      categories: const [],
+      transactions: [txn],
+      outings: [outing],
+    );
+
+    await tester.pumpWidget(_wrap(const OutingsScreen(), ledger: testLedger));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Weekend Camp'), findsOneWidget);
+    expect(find.text('Tent Rental'), findsOneWidget);
+
+    // Find and tap delete button
+    final deleteBtn = find.byTooltip('Delete spend');
+    expect(deleteBtn, findsOneWidget);
+    await tester.tap(deleteBtn);
+    await tester.pumpAndSettle();
+
+    // Verify confirmation dialog
+    expect(find.text('Delete spend?'), findsOneWidget);
+    expect(find.text('Remove "Tent Rental" (₹350) from "Weekend Camp"?'), findsOneWidget);
+
+    // Confirm deletion
+    await tester.tap(find.text(Copy.remove));
+    await tester.pumpAndSettle();
+
+    // Verify spend is deleted from screen and UNDO snackbar appears
+    expect(find.text('Tent Rental'), findsNothing);
+    expect(find.text('UNDO'), findsOneWidget);
+
+    // Tap UNDO
+    await tester.tap(find.text('UNDO'));
+    await tester.pumpAndSettle();
+
+    // Verify spend restored
+    expect(find.text('Tent Rental'), findsOneWidget);
   });
 
   testWidgets('OutingsScreen renders past outings from previous cycle correctly', (tester) async {

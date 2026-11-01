@@ -393,39 +393,116 @@ class _OutingCard extends ConsumerWidget {
             ),
           ),
           const Hairline(),
+          if (group.txns.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Space.x4, vertical: 12),
+              child: Text(
+                'No spends logged yet for this trip.',
+                style: TypeScale.caption(t.inkSoft).copyWith(fontStyle: FontStyle.italic),
+              ),
+            ),
           for (final txn in group.txns)
             Dismissible(
-              key: ValueKey(txn.id),
+              key: ValueKey('outing-spend-${txn.id}'),
               direction: DismissDirection.endToStart,
-              onDismissed: (_) => ref.read(ledgerProvider.notifier).deleteTxn(txn.id),
+              dismissThresholds: const {
+                DismissDirection.endToStart: 0.35,
+              },
               background: Container(
                 color: t.overTint,
                 alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: Space.x4),
-                child: Icon(Icons.delete_outline, color: t.over, size: 20),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: Space.x4, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: Space.x4),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            txn.note.isNotEmpty ? txn.note : txn.merchant,
-                            style: TypeScale.body(t.ink),
-                          ),
-                          if (txn.note.isNotEmpty && txn.merchant.isNotEmpty && txn.merchant != txn.note)
-                            Text(txn.merchant, style: TypeScale.caption(t.inkSoft)),
-                        ],
-                      ),
-                    ),
                     Text(
-                      Money.formatPaise(txn.amountPaise, hide: hideAmounts),
-                      style: TypeScale.money(t.inkSoft, size: 14),
+                      'Delete',
+                      style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
                     ),
+                    const SizedBox(width: Space.x2),
+                    Icon(Icons.delete_outline_rounded, color: t.over, size: 20),
                   ],
+                ),
+              ),
+              onDismissed: (_) {
+                HapticFeedback.mediumImpact();
+                ref.read(ledgerProvider.notifier).deleteTxn(txn.id);
+                final label = txn.note.isNotEmpty ? txn.note : (txn.merchant.isNotEmpty ? txn.merchant : 'spend');
+                final amountStr = Money.formatPaise(txn.amountPaise);
+                ScaffoldMessenger.of(context).clearSnackBars();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    behavior: SnackBarBehavior.floating,
+                    margin: const EdgeInsets.all(Space.margin),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(Space.controlRadius),
+                      side: BorderSide(color: t.rule),
+                    ),
+                    backgroundColor: t.card,
+                    content: Row(
+                      children: [
+                        Icon(Icons.delete_outline_rounded, size: 18, color: t.inkSoft),
+                        const SizedBox(width: Space.x2),
+                        Expanded(
+                          child: Text(
+                            'Deleted "$label" ($amountStr)',
+                            style: TypeScale.body(t.ink).copyWith(fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    action: SnackBarAction(
+                      label: 'UNDO',
+                      textColor: t.accent,
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        ref.read(ledgerProvider.notifier).restoreTxn(txn);
+                      },
+                    ),
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              },
+              child: InkWell(
+                onTap: () => showOutingSheet(
+                  context,
+                  existingOutingId: group.id,
+                  title: group.title,
+                  editingTxn: txn,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(Space.x4, 8, Space.x2, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              txn.note.isNotEmpty ? txn.note : (txn.merchant.isNotEmpty ? txn.merchant : 'Spend'),
+                              style: TypeScale.body(t.ink),
+                            ),
+                            if (txn.note.isNotEmpty && txn.merchant.isNotEmpty && txn.merchant != txn.note)
+                              Text(txn.merchant, style: TypeScale.caption(t.inkSoft)),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        Money.formatPaise(txn.amountPaise, hide: hideAmounts),
+                        style: TypeScale.money(t.inkSoft, size: 14),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: Icon(Icons.delete_outline_rounded, size: 18, color: t.inkSoft),
+                        tooltip: 'Delete spend',
+                        padding: const EdgeInsets.all(6),
+                        constraints: const BoxConstraints(),
+                        onPressed: () => _deleteSpend(context, ref, txn),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -505,6 +582,76 @@ class _OutingCard extends ConsumerWidget {
     );
     if (ok == true) {
       await ref.read(ledgerProvider.notifier).deleteOuting(group.id);
+    }
+  }
+
+  Future<void> _deleteSpend(BuildContext context, WidgetRef ref, Txn txn) async {
+    final t = TokenScope.of(context);
+    final label = txn.note.isNotEmpty ? txn.note : (txn.merchant.isNotEmpty ? txn.merchant : 'this spend');
+    final amountStr = Money.formatPaise(txn.amountPaise);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete spend?', style: TypeScale.heading(t.ink)),
+        content: Text(
+          'Remove "$label" ($amountStr) from "${group.title}"?',
+          style: TypeScale.body(t.inkSoft),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: t.over),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(Copy.remove, style: TypeScale.body(Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      HapticFeedback.mediumImpact();
+      await ref.read(ledgerProvider.notifier).deleteTxn(txn.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(Space.margin),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Space.controlRadius),
+              side: BorderSide(color: t.rule),
+            ),
+            backgroundColor: t.card,
+            content: Row(
+              children: [
+                Icon(Icons.delete_outline_rounded, size: 18, color: t.inkSoft),
+                const SizedBox(width: Space.x2),
+                Expanded(
+                  child: Text(
+                    'Deleted "$label" ($amountStr)',
+                    style: TypeScale.body(t.ink).copyWith(fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            action: SnackBarAction(
+              label: 'UNDO',
+              textColor: t.accent,
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                ref.read(ledgerProvider.notifier).restoreTxn(txn);
+              },
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 }
