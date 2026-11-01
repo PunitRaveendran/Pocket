@@ -15,6 +15,7 @@ import 'package:pocket/ui/splits/splits_screen.dart';
 import 'package:pocket/ui/today/today_screen.dart';
 import 'package:pocket/ui/widgets/allowance_meter.dart';
 import 'package:pocket/ui/widgets/amount_pad.dart';
+import 'package:pocket/ui/widgets/lock_screen.dart';
 
 Widget _wrap(Widget child, {Ledger? ledger}) {
   final sampleLedger = ledger ??
@@ -559,10 +560,39 @@ void main() {
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
-    // Verify Settings tab shows both the embedded Insights section on top and budget settings
+    // Verify Settings tab shows dropdown sections
     expect(find.text('THIS CYCLE & INSIGHTS'), findsOneWidget);
-    expect(find.text('Visual Analytics'), findsOneWidget);
+    expect(find.text('This Cycle & Insights'), findsOneWidget);
     expect(find.text('BUDGET & PACING'), findsOneWidget);
+    expect(find.text('Budget & Pacing'), findsOneWidget);
+    expect(find.text('APPEARANCE & PRIVACY'), findsOneWidget);
+    expect(find.text('Appearance & Privacy'), findsOneWidget);
+
+    // Expand This Cycle & Insights dropdown
+    await tester.tap(find.text('This Cycle & Insights'));
+    await tester.pumpAndSettle();
+    expect(find.text('Visual Analytics'), findsOneWidget);
+  });
+
+  testWidgets('LockScreen renders when biometric is enabled and user is locked', (tester) async {
+    var unlocked = false;
+    await tester.pumpWidget(
+      TokenScope(
+        tokens: PaperTokens.light,
+        child: MaterialApp(
+          home: LockScreen(
+            onUnlock: () async => unlocked = true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Pocket is locked'), findsOneWidget);
+    expect(find.text('Unlock with Biometrics / PIN'), findsOneWidget);
+
+    await tester.tap(find.text('Unlock with Biometrics / PIN'));
+    expect(unlocked, isTrue);
   });
 
   testWidgets('AppShell allows sliding horizontally to navigate between tabs', (tester) async {

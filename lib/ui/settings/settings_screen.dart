@@ -190,178 +190,211 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       children: [
         // Section 0: Insights & Visual Analytics
         _sectionHeader(t, 'THIS CYCLE & INSIGHTS'),
-        const Padding(
-          padding: EdgeInsets.fromLTRB(Space.margin, Space.x2, Space.margin, Space.x6),
-          child: InsightsScreen(isEmbedded: true),
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            leading: Icon(Icons.insights_rounded, size: 20, color: t.accent),
+            title: Text('This Cycle & Insights', style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w600)),
+            subtitle: Text(
+              'Interactive graphs, burn rate pace & category breakdown',
+              style: TypeScale.caption(t.inkSoft),
+            ),
+            children: const [
+              Padding(
+                padding: EdgeInsets.fromLTRB(Space.margin, Space.x2, Space.margin, Space.x6),
+                child: InsightsScreen(isEmbedded: true),
+              ),
+            ],
+          ),
         ),
         const Hairline(),
 
         // Section 1: Budget & Allowance
         _sectionHeader(t, 'BUDGET & PACING'),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text(Copy.monthlyStipend, style: TypeScale.body(t.ink)),
-            subtitle: Text('Base pocket money or allowance', style: TypeScale.caption(t.inkSoft)),
-            trailing: Text(
-              Money.formatPaise(s.stipendPaise, hide: s.hideAmounts),
-              style: TypeScale.money(t.ink),
-            ),
-            onTap: () => _editStipend(context, ref, s.stipendPaise),
-          ),
-          const Hairline(indent: Space.margin),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text('Adjust Account Balance', style: TypeScale.body(t.ink)),
-            subtitle: Text('Manually correct current balance or base stipend', style: TypeScale.caption(t.inkSoft)),
-            trailing: Icon(Icons.tune, color: t.accent, size: 20),
-            onTap: () => showAdjustBalanceSheet(context),
-          ),
-          const Hairline(indent: Space.margin),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text(Copy.cycleStart, style: TypeScale.body(t.ink)),
-            subtitle: Text('Monthly refresh day', style: TypeScale.caption(t.inkSoft)),
-            trailing: Text(CycleDayPicker.ordinal(s.cycleStartDay), style: TypeScale.body(t.inkSoft)),
-            onTap: () => _editDay(context, ref, s),
-          ),
-          const Hairline(indent: Space.margin),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text('Allowance pacing', style: TypeScale.body(t.ink)),
-            subtitle: Text('Divide budget by day or 7-day week', style: TypeScale.caption(t.inkSoft)),
-            trailing: DropdownButton<PacingMode>(
-              value: s.pacingMode,
-              underline: const SizedBox.shrink(),
-              dropdownColor: t.card,
-              style: TypeScale.body(t.accent),
-              onChanged: (mode) {
-                if (mode != null) {
-                  ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(pacingMode: mode));
-                }
-              },
-              items: const [
-                DropdownMenuItem(value: PacingMode.daily, child: Text('Daily')),
-                DropdownMenuItem(value: PacingMode.weekly, child: Text('Weekly')),
-              ],
-            ),
-          ),
-          const Hairline(indent: Space.margin),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text('Leftover policy', style: TypeScale.body(t.ink)),
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            leading: Icon(Icons.account_balance_wallet_outlined, size: 20, color: t.accent),
+            title: Text('Budget & Pacing', style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w600)),
             subtitle: Text(
-              s.leftoverPolicy == LeftoverPolicy.dynamicDistribute
-                  ? 'Distribute over remaining days'
-                  : 'Save into Outings Piggy Bank',
+              'Stipend: ${Money.formatPaise(s.stipendPaise, hide: s.hideAmounts)} · Refresh day ${CycleDayPicker.ordinal(s.cycleStartDay)}',
               style: TypeScale.caption(t.inkSoft),
             ),
-            trailing: DropdownButton<LeftoverPolicy>(
-              value: s.leftoverPolicy,
-              underline: const SizedBox.shrink(),
-              dropdownColor: t.card,
-              style: TypeScale.body(t.accent),
-              onChanged: (policy) {
-                if (policy != null) {
-                  ref.read(ledgerProvider.notifier).setLeftoverPolicy(policy);
-                }
-              },
-              items: const [
-                DropdownMenuItem(
-                  value: LeftoverPolicy.dynamicDistribute,
-                  child: Text('Distribute'),
+            children: [
+              ListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text(Copy.monthlyStipend, style: TypeScale.body(t.ink)),
+                subtitle: Text('Base pocket money or allowance', style: TypeScale.caption(t.inkSoft)),
+                trailing: Text(
+                  Money.formatPaise(s.stipendPaise, hide: s.hideAmounts),
+                  style: TypeScale.money(t.ink),
                 ),
-                DropdownMenuItem(
-                  value: LeftoverPolicy.outingsPiggyBank,
-                  child: Text('Piggy Bank'),
+                onTap: () => _editStipend(context, ref, s.stipendPaise),
+              ),
+              const Hairline(indent: Space.margin + 32),
+              ListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text('Adjust Account Balance', style: TypeScale.body(t.ink)),
+                subtitle: Text('Manually correct current balance or base stipend', style: TypeScale.caption(t.inkSoft)),
+                trailing: Icon(Icons.tune, color: t.accent, size: 20),
+                onTap: () => showAdjustBalanceSheet(context),
+              ),
+              const Hairline(indent: Space.margin + 32),
+              ListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text(Copy.cycleStart, style: TypeScale.body(t.ink)),
+                subtitle: Text('Monthly refresh day', style: TypeScale.caption(t.inkSoft)),
+                trailing: Text(CycleDayPicker.ordinal(s.cycleStartDay), style: TypeScale.body(t.inkSoft)),
+                onTap: () => _editDay(context, ref, s),
+              ),
+              const Hairline(indent: Space.margin + 32),
+              ListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text('Leftover policy', style: TypeScale.body(t.ink)),
+                subtitle: Text(
+                  s.leftoverPolicy == LeftoverPolicy.dynamicDistribute
+                      ? 'Distribute over remaining days'
+                      : 'Save into Outings Piggy Bank',
+                  style: TypeScale.caption(t.inkSoft),
                 ),
-              ],
-            ),
+                trailing: DropdownButton<LeftoverPolicy>(
+                  value: s.leftoverPolicy,
+                  underline: const SizedBox.shrink(),
+                  dropdownColor: t.card,
+                  style: TypeScale.body(t.accent),
+                  onChanged: (policy) {
+                    if (policy != null) {
+                      ref.read(ledgerProvider.notifier).setLeftoverPolicy(policy);
+                    }
+                  },
+                  items: const [
+                    DropdownMenuItem(
+                      value: LeftoverPolicy.dynamicDistribute,
+                      child: Text('Distribute'),
+                    ),
+                    DropdownMenuItem(
+                      value: LeftoverPolicy.outingsPiggyBank,
+                      child: Text('Piggy Bank'),
+                    ),
+                  ],
+                ),
+              ),
+              const Hairline(indent: Space.margin + 32),
+              SwitchListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text('Month-to-Month Rollover', style: TypeScale.body(t.ink)),
+                subtitle: Text(
+                  'Roll unspent savings into next month’s stipend',
+                  style: TypeScale.caption(t.inkSoft),
+                ),
+                value: s.rolloverUnspent,
+                activeThumbColor: t.paper,
+                activeTrackColor: t.accent,
+                onChanged: (v) => ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(rolloverUnspent: v)),
+              ),
+            ],
           ),
-          const Hairline(indent: Space.margin),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text('Month-to-Month Rollover', style: TypeScale.body(t.ink)),
-            subtitle: Text(
-              'Roll unspent savings into next month’s stipend',
-              style: TypeScale.caption(t.inkSoft),
-            ),
-            value: s.rolloverUnspent,
-            activeThumbColor: t.paper,
-            activeTrackColor: t.accent,
-            onChanged: (v) => ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(rolloverUnspent: v)),
-          ),
+        ),
+        const Hairline(),
 
-          const SizedBox(height: Space.x3),
-          // Section 2: Appearance & Privacy
-          _sectionHeader(t, 'APPEARANCE & PRIVACY'),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text('Theme', style: TypeScale.body(t.ink)),
+        // Section 2: Appearance & Privacy
+        _sectionHeader(t, 'APPEARANCE & PRIVACY'),
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+            leading: Icon(Icons.palette_outlined, size: 20, color: t.accent),
+            title: Text('Appearance & Privacy', style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w600)),
             subtitle: Text(
-              switch (s.appThemeMode) {
-                AppThemeMode.system => 'System default',
-                AppThemeMode.light => 'Light mode (editorial warm paper)',
-                AppThemeMode.dark => 'Dark mode (editorial charcoal)',
-              },
+              'Theme · Hide amounts · Biometric lock · Receipts',
               style: TypeScale.caption(t.inkSoft),
             ),
-            trailing: DropdownButton<AppThemeMode>(
-              value: s.appThemeMode,
-              underline: const SizedBox.shrink(),
-              dropdownColor: t.card,
-              style: TypeScale.body(t.accent),
-              onChanged: (mode) {
-                if (mode != null) {
-                  ref.read(ledgerProvider.notifier).setThemeMode(mode);
-                }
-              },
-              items: const [
-                DropdownMenuItem(value: AppThemeMode.system, child: Text('System')),
-                DropdownMenuItem(value: AppThemeMode.light, child: Text('Light')),
-                DropdownMenuItem(value: AppThemeMode.dark, child: Text('Dark')),
-              ],
-            ),
+            children: [
+              ListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text('Theme', style: TypeScale.body(t.ink)),
+                subtitle: Text(
+                  switch (s.appThemeMode) {
+                    AppThemeMode.system => 'System default',
+                    AppThemeMode.light => 'Light mode (editorial warm paper)',
+                    AppThemeMode.dark => 'Dark mode (editorial charcoal)',
+                  },
+                  style: TypeScale.caption(t.inkSoft),
+                ),
+                trailing: DropdownButton<AppThemeMode>(
+                  value: s.appThemeMode,
+                  underline: const SizedBox.shrink(),
+                  dropdownColor: t.card,
+                  style: TypeScale.body(t.accent),
+                  onChanged: (mode) {
+                    if (mode != null) {
+                      ref.read(ledgerProvider.notifier).setThemeMode(mode);
+                    }
+                  },
+                  items: const [
+                    DropdownMenuItem(value: AppThemeMode.system, child: Text('System')),
+                    DropdownMenuItem(value: AppThemeMode.light, child: Text('Light')),
+                    DropdownMenuItem(value: AppThemeMode.dark, child: Text('Dark')),
+                  ],
+                ),
+              ),
+              const Hairline(indent: Space.margin + 32),
+              SwitchListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text(Copy.hideAmounts, style: TypeScale.body(t.ink)),
+                subtitle: Text('Tap amounts or toggle to mask numbers', style: TypeScale.caption(t.inkSoft)),
+                value: s.hideAmounts,
+                activeThumbColor: t.paper,
+                activeTrackColor: t.accent,
+                onChanged: (v) => ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(hideAmounts: v)),
+              ),
+              const Hairline(indent: Space.margin + 32),
+              SwitchListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                title: Text('Biometric App Lock', style: TypeScale.body(t.ink)),
+                subtitle: Text('Fingerprint or device PIN on launch', style: TypeScale.caption(t.inkSoft)),
+                value: s.biometricEnabled,
+                activeThumbColor: t.paper,
+                activeTrackColor: t.accent,
+                onChanged: (v) async {
+                  if (v) {
+                    final available = await BiometricService.instance.isAvailable();
+                    if (!available) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('No biometric sensor or device screen lock configured.')),
+                        );
+                      }
+                      return;
+                    }
+                  }
+                  final ok = await BiometricService.instance.authenticate(
+                    reason: v ? 'Confirm fingerprint or PIN to enable lock' : 'Confirm fingerprint or PIN to disable lock',
+                  );
+                  if (ok) {
+                    await ref.read(ledgerProvider.notifier).setBiometricEnabled(v);
+                  } else if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Authentication failed or cancelled')),
+                    );
+                  }
+                },
+              ),
+              const Hairline(indent: Space.margin + 32),
+              ListTile(
+                contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                leading: Icon(Icons.receipt_long_outlined, size: 20, color: t.inkSoft),
+                title: Text('Month-End Paper Receipt', style: TypeScale.body(t.ink)),
+                subtitle: Text('View thermal breakdown of cycle spends', style: TypeScale.caption(t.inkSoft)),
+                trailing: Icon(Icons.chevron_right, size: 18, color: t.inkSoft),
+                onTap: () => showMonthEndReceipt(context, ledger),
+              ),
+            ],
           ),
-          const Hairline(indent: Space.margin),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text(Copy.hideAmounts, style: TypeScale.body(t.ink)),
-            subtitle: Text('Tap amounts or toggle to mask numbers', style: TypeScale.caption(t.inkSoft)),
-            value: s.hideAmounts,
-            activeThumbColor: t.paper,
-            activeTrackColor: t.accent,
-            onChanged: (v) => ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(hideAmounts: v)),
-          ),
-          const Hairline(indent: Space.margin),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            title: Text('Biometric App Lock', style: TypeScale.body(t.ink)),
-            subtitle: Text('Fingerprint or device PIN on launch', style: TypeScale.caption(t.inkSoft)),
-            value: s.biometricEnabled,
-            activeThumbColor: t.paper,
-            activeTrackColor: t.accent,
-            onChanged: (v) async {
-              final ok = await BiometricService.instance.authenticate(
-                reason: v ? 'Verify identity to enable Biometric Lock' : 'Verify identity to disable Biometric Lock',
-              );
-              if (ok) {
-                await ref.read(ledgerProvider.notifier).setBiometricEnabled(v);
-              } else if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Biometric authentication cancelled or not matched')),
-                );
-              }
-            },
-          ),
-          const Hairline(indent: Space.margin),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-            leading: Icon(Icons.receipt_long_outlined, size: 20, color: t.inkSoft),
-            title: Text('Month-End Paper Receipt', style: TypeScale.body(t.ink)),
-            subtitle: Text('View thermal breakdown of cycle spends', style: TypeScale.caption(t.inkSoft)),
-            trailing: Icon(Icons.chevron_right, size: 18, color: t.inkSoft),
-            onTap: () => showMonthEndReceipt(context, ledger),
-          ),
+        ),
+        const Hairline(),
 
           const SizedBox(height: Space.x3),
           // Section: Bank SMS & Email Sync (Universal)
