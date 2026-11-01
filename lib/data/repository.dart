@@ -217,9 +217,10 @@ class PocketRepository {
           : LeftoverPolicy.dynamicDistribute,
       biometricEnabled: map['biometric_enabled'] == '1',
       fixedDeductions: deductions,
-      appThemeMode: map['app_theme_mode'] == 'dark'
-          ? AppThemeMode.dark
-          : (map['app_theme_mode'] == 'light' ? AppThemeMode.light : AppThemeMode.system),
+      appThemeMode: AppThemeMode.values.firstWhere(
+        (m) => m.name == map['app_theme_mode'],
+        orElse: () => AppThemeMode.system,
+      ),
       rolloverUnspent: map['rollover_unspent'] != '0',
       cycleAdjustments: cycleAdjustments,
       emailSyncAddress: map['email_sync_address'] ?? '',

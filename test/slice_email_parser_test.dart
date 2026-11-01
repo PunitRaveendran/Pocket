@@ -404,5 +404,138 @@ RRN                 111038253278
       expect(result.isDebit, isTrue);
     });
 
+    group('Indian Bank & UPI SMS Alerts', () {
+      test('Parses HDFC Sent Rs SMS', () {
+        const address = 'VK-HDFCBK';
+        const sms = 'Sent Rs.500.00 from HDFC Bank A/C **1234 to SWIGGY on 01-NOV-26. UPI:430712345678. Not you? Call 18002586161.';
+
+        final result = BankEmailParser.parse(
+          subject: address,
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 50000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'SWIGGY');
+      });
+
+      test('Parses SBI UPI debit SMS without currency symbol', () {
+        const address = 'VM-SBIPAY';
+        const sms = 'Dear UPI user A/C 1234 debited by 500.0 on date 01Nov26 trf to RAMESH Refno 430712345678. If not done by you, call 1800111109 -SBI';
+
+        final result = BankEmailParser.parse(
+          subject: address,
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 50000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'RAMESH');
+      });
+
+      test('Parses ICICI UPI slash path debit SMS', () {
+        const address = 'AD-ICICIB';
+        const sms = 'Your A/C XX1234 is debited for Rs 500.00 on 01-Nov-26. Info: UPI/DR/430712345678/SWIGGY/ICIC/user. Bal Rs 5000.';
+
+        final result = BankEmailParser.parse(
+          subject: address,
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 50000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'SWIGGY');
+      });
+
+      test('Parses Axis Bank debit to VPA SMS', () {
+        const address = 'AX-AXISBK';
+        const sms = 'INR 500.00 debited from A/C no. XX1234 on 01-11-26 15:30:00 towards VPA swiggy@icici (UPI Ref no 430712345678).';
+
+        final result = BankEmailParser.parse(
+          subject: address,
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 50000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'swiggy');
+      });
+
+      test('Parses Google Pay SMS', () {
+        const sms = 'You sent ₹500 to Ramesh using Google Pay (UPI: 430712345678).';
+
+        final result = BankEmailParser.parse(
+          subject: '',
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 50000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'Ramesh');
+      });
+
+      test('Parses PhonePe SMS', () {
+        const sms = 'Paid ₹350 to Chai Point successfully on PhonePe. Txn ID: T2611011530.';
+
+        final result = BankEmailParser.parse(
+          subject: '',
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 35000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'Chai Point');
+      });
+
+      test('Parses Debit of Rs. SMS', () {
+        const sms = 'Debit of Rs. 200.00 from A/c XX1234 on 01-Nov-26 at MCDONALDS.';
+
+        final result = BankEmailParser.parse(
+          subject: '',
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 20000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'MCDONALDS');
+      });
+
+      test('Parses A/C Dr Rs. SMS', () {
+        const sms = 'A/C XX1234 Dr Rs 150.00 on 01-Nov-26 trf to Ramesh. Bal Rs 2000.';
+
+        final result = BankEmailParser.parse(
+          subject: '',
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 15000);
+        expect(result.isDebit, isTrue);
+        expect(result.merchant, 'Ramesh');
+      });
+
+      test('Credit SMS remains intact and correctly recognized as credit', () {
+        const sms = 'Your A/C XX1234 is credited with Rs 1,000.00 on 01-Nov-26 by transfer from Sneha Sharma.';
+
+        final result = BankEmailParser.parse(
+          subject: '',
+          bodyText: sms,
+        );
+
+        expect(result, isNotNull);
+        expect(result!.amountPaise, 100000);
+        expect(result.isDebit, isFalse);
+        expect(result.merchant, 'Sneha Sharma');
+      });
+    });
+
   });
 }
+

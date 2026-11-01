@@ -79,7 +79,7 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                     color: t.accentTint,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.mail_outline_rounded, size: 20, color: t.accent),
+                  child: Icon(Icons.receipt_long_rounded, size: 20, color: t.accent),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -87,7 +87,7 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Slice Transactions',
+                        'Recent Transactions',
                         style: TypeScale.title(t.ink).copyWith(fontSize: 18),
                       ),
                       Text(

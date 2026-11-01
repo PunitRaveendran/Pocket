@@ -108,9 +108,10 @@ class BackupService {
             ? LeftoverPolicy.outingsPiggyBank
             : LeftoverPolicy.dynamicDistribute,
         biometricEnabled: sMap['biometric_enabled'] as bool? ?? false,
-        appThemeMode: sMap['app_theme_mode'] == 'dark'
-            ? AppThemeMode.dark
-            : (sMap['app_theme_mode'] == 'light' ? AppThemeMode.light : AppThemeMode.system),
+        appThemeMode: AppThemeMode.values.firstWhere(
+          (m) => m.name == sMap['app_theme_mode'],
+          orElse: () => AppThemeMode.system,
+        ),
         rolloverUnspent: sMap['rollover_unspent'] as bool? ?? true,
         cycleAdjustments: sMap['cycle_adjustments'] is Map
             ? (sMap['cycle_adjustments'] as Map)

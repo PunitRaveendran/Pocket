@@ -525,7 +525,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify sheet content
-    expect(find.text('Slice Transactions'), findsOneWidget);
+    expect(find.text('Recent Transactions'), findsOneWidget);
     expect(find.text('What was this for?'), findsOneWidget);
     expect(find.text('Just me'), findsOneWidget);
     expect(find.text('Split with friends'), findsOneWidget);

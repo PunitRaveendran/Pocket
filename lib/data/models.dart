@@ -237,7 +237,16 @@ class FriendSplit {
 
 enum LeftoverPolicy { dynamicDistribute, outingsPiggyBank }
 
-enum AppThemeMode { system, light, dark }
+enum AppThemeMode {
+  system,
+  light,
+  dark,
+  matcha,
+  espresso,
+  nordic,
+  sakura,
+  oled,
+}
 
 class FixedDeduction {
   const FixedDeduction({

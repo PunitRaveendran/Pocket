@@ -20,28 +20,50 @@ class PocketApp extends ConsumerWidget {
     final appThemeMode = ledger.value?.settings.appThemeMode ?? AppThemeMode.system;
 
     final Brightness activeBrightness;
+    final PaperTokens tokens;
     final ThemeMode themeMode;
     switch (appThemeMode) {
-      case AppThemeMode.dark:
-        activeBrightness = Brightness.dark;
-        themeMode = ThemeMode.dark;
       case AppThemeMode.light:
+        tokens = PaperTokens.light;
         activeBrightness = Brightness.light;
         themeMode = ThemeMode.light;
+      case AppThemeMode.dark:
+        tokens = PaperTokens.dark;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.matcha:
+        tokens = PaperTokens.matcha;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.espresso:
+        tokens = PaperTokens.espresso;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.nordic:
+        tokens = PaperTokens.nordic;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.sakura:
+        tokens = PaperTokens.sakura;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.oled:
+        tokens = PaperTokens.oled;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
       case AppThemeMode.system:
         activeBrightness = systemBrightness;
+        tokens = activeBrightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;
         themeMode = ThemeMode.system;
     }
-
-    final tokens = activeBrightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;
 
     return TokenScope(
       tokens: tokens,
       child: MaterialApp(
         title: 'Pocket',
         debugShowCheckedModeBanner: false,
-        theme: PocketTheme.of(Brightness.light),
-        darkTheme: PocketTheme.of(Brightness.dark),
+        theme: PocketTheme.of(Brightness.light, tokens),
+        darkTheme: PocketTheme.of(Brightness.dark, tokens),
         themeMode: themeMode,
         scrollBehavior: const PocketScrollBehavior(),
         builder: (context, child) {

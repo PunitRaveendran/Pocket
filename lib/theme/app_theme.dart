@@ -64,8 +64,8 @@ class TypeScale {
 }
 
 class PocketTheme {
-  static ThemeData of(Brightness brightness) {
-    final t = brightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;
+  static ThemeData of(Brightness brightness, [PaperTokens? customTokens]) {
+    final t = customTokens ?? (brightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light);
     final base = brightness == Brightness.dark ? ThemeData.dark() : ThemeData.light();
     return base.copyWith(
       brightness: brightness,

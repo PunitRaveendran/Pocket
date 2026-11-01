@@ -95,18 +95,42 @@ class SmsSyncService {
         }
 
         final lowerBody = body.toLowerCase();
+
+        // Fast-filter: Ignore authentication OTPs and 2FA codes
+        final isOtp = (lowerBody.contains('otp') ||
+                lowerBody.contains('one time password') ||
+                lowerBody.contains('verification code') ||
+                lowerBody.contains('security code')) &&
+            !lowerBody.contains('debited') &&
+            !lowerBody.contains('credited') &&
+            !lowerBody.contains('successfully');
+        if (isOtp) {
+          continue;
+        }
+
         final hasTransactionKeyword = lowerBody.contains('debited') ||
+            lowerBody.contains('debit') ||
+            lowerBody.contains('dr') ||
             lowerBody.contains('spent') ||
             lowerBody.contains('credited') ||
+            lowerBody.contains('credit') ||
+            lowerBody.contains('cr') ||
             lowerBody.contains('paid') ||
+            lowerBody.contains('payment') ||
+            lowerBody.contains('sent') ||
             lowerBody.contains('transferred') ||
+            lowerBody.contains('transfer') ||
+            lowerBody.contains('trf') ||
             lowerBody.contains('withdrawn') ||
             lowerBody.contains('refund') ||
-            lowerBody.contains('received');
+            lowerBody.contains('received') ||
+            lowerBody.contains('purchase') ||
+            lowerBody.contains('charged');
 
         final hasCurrencyKeyword = lowerBody.contains('rs') ||
             lowerBody.contains('inr') ||
-            body.contains('₹');
+            body.contains('₹') ||
+            RegExp(r'\b(?:debited|credited|trf|paid|sent|withdrawn)\s+(?:by|for|of|with)?\s*[\d,]+(?:\.\d{1,2})?\b', caseSensitive: false).hasMatch(body);
 
         if (!hasTransactionKeyword || !hasCurrencyKeyword) {
           continue;
