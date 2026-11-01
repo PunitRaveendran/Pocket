@@ -157,16 +157,18 @@ class BankEmailSyncService {
     }
   }
 
-  /// Archives an email from Gmail INBOX by Message-ID.
-  /// Moves the message from INBOX to All Mail (or removes the \Inbox label).
-  Future<bool> archiveEmail({
+  /// Moves a processed email from Gmail INBOX to a Gmail label (defaulting to "Slice").
+  /// In Gmail IMAP, moving a message to a label mailbox applies the label and removes it from INBOX.
+  Future<bool> moveEmailToLabel({
     required String email,
     required String appPassword,
     required String messageId,
+    String label = 'Slice',
   }) async {
     final cleanEmail = email.trim();
     final cleanPassword = appPassword.replaceAll(' ', '').trim();
     final cleanId = messageId.replaceAll(RegExp(r'[<>]'), '').trim();
+    final targetLabel = label.trim().isEmpty ? 'Slice' : label.trim();
 
     if (cleanEmail.isEmpty || cleanPassword.isEmpty || cleanId.isEmpty) {
       return false;
@@ -195,31 +197,70 @@ class BankEmailSyncService {
         return false;
       }
 
-      // Try finding All Mail box first
+      // Check existing mailboxes to locate the target label
       final mailboxes = await client.listMailboxes();
-      Mailbox? allMail;
+      Mailbox? targetMailbox;
+      final cleanLabelLower = targetLabel.toLowerCase();
       for (final m in mailboxes) {
-        if (m.hasFlag(MailboxFlag.all) ||
-            m.hasFlag(MailboxFlag.archive) ||
-            m.path == '[Gmail]/All Mail' ||
-            m.path == '[Google Mail]/All Mail') {
-          allMail = m;
+        if (m.name.toLowerCase() == cleanLabelLower ||
+            m.path.toLowerCase() == cleanLabelLower ||
+            m.path.toLowerCase().endsWith('/$cleanLabelLower')) {
+          targetMailbox = m;
           break;
         }
       }
 
-      var moved = false;
-      if (allMail != null) {
+      // If the label mailbox does not exist yet, try creating it in Gmail
+      if (targetMailbox == null) {
         try {
-          await client.move(seq, targetMailbox: allMail);
+          targetMailbox = await client.createMailbox(targetLabel);
+        } catch (_) {}
+      }
+
+      var moved = false;
+      try {
+        if (targetMailbox != null) {
+          await client.move(seq, targetMailbox: targetMailbox);
+        } else {
+          await client.move(seq, targetMailboxPath: targetLabel);
+        }
+        moved = true;
+      } catch (_) {
+        // Fallback: copy to label mailbox, then remove from INBOX (markDeleted & expunge)
+        try {
+          if (targetMailbox != null) {
+            await client.copy(seq, targetMailbox: targetMailbox);
+          } else {
+            await client.copy(seq, targetMailboxPath: targetLabel);
+          }
+          await client.markDeleted(seq);
+          await client.expunge();
           moved = true;
         } catch (_) {}
       }
 
       if (!moved) {
-        // In Gmail IMAP, marking deleted in INBOX and expunging removes the \Inbox label (archives it)
-        await client.markDeleted(seq);
-        await client.expunge();
+        // Fallback to All Mail / archive if moving to label failed
+        Mailbox? allMail;
+        for (final m in mailboxes) {
+          if (m.hasFlag(MailboxFlag.all) ||
+              m.hasFlag(MailboxFlag.archive) ||
+              m.path == '[Gmail]/All Mail' ||
+              m.path == '[Google Mail]/All Mail') {
+            allMail = m;
+            break;
+          }
+        }
+        if (allMail != null) {
+          try {
+            await client.move(seq, targetMailbox: allMail);
+            moved = true;
+          } catch (_) {}
+        }
+        if (!moved) {
+          await client.markDeleted(seq);
+          await client.expunge();
+        }
       }
 
       return true;
@@ -233,6 +274,19 @@ class BankEmailSyncService {
       }
     }
   }
+
+  /// Archives/labels an email from Gmail INBOX by Message-ID.
+  Future<bool> archiveEmail({
+    required String email,
+    required String appPassword,
+    required String messageId,
+    String label = 'Slice',
+  }) => moveEmailToLabel(
+    email: email,
+    appPassword: appPassword,
+    messageId: messageId,
+    label: label,
+  );
 }
 
 typedef SliceEmailSyncService = BankEmailSyncService;
