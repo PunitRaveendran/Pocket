@@ -147,6 +147,83 @@ class BankEmailSyncService {
       }
     }
   }
+
+  /// Archives an email from Gmail INBOX by Message-ID.
+  /// Moves the message from INBOX to All Mail (or removes the \Inbox label).
+  Future<bool> archiveEmail({
+    required String email,
+    required String appPassword,
+    required String messageId,
+  }) async {
+    final cleanEmail = email.trim();
+    final cleanPassword = appPassword.replaceAll(' ', '').trim();
+    final cleanId = messageId.replaceAll(RegExp(r'[<>]'), '').trim();
+
+    if (cleanEmail.isEmpty || cleanPassword.isEmpty || cleanId.isEmpty) {
+      return false;
+    }
+
+    final client = ImapClient(isLogEnabled: false);
+    try {
+      await client.connectToServer('imap.gmail.com', 993, isSecure: true);
+      await client.login(cleanEmail, cleanPassword);
+      await client.selectInbox();
+
+      // Search for the specific email by Message-ID
+      var searchRes = await client.searchMessages(
+        searchCriteria: 'HEADER Message-ID "$cleanId"',
+      );
+      var seq = searchRes.matchingSequence;
+
+      if (seq == null || seq.isEmpty) {
+        searchRes = await client.searchMessages(
+          searchCriteria: 'HEADER Message-ID "<$cleanId>"',
+        );
+        seq = searchRes.matchingSequence;
+      }
+
+      if (seq == null || seq.isEmpty) {
+        return false;
+      }
+
+      // Try finding All Mail box first
+      final mailboxes = await client.listMailboxes();
+      Mailbox? allMail;
+      for (final m in mailboxes) {
+        if (m.hasFlag(MailboxFlag.all) ||
+            m.hasFlag(MailboxFlag.archive) ||
+            m.path == '[Gmail]/All Mail' ||
+            m.path == '[Google Mail]/All Mail') {
+          allMail = m;
+          break;
+        }
+      }
+
+      var moved = false;
+      if (allMail != null) {
+        try {
+          await client.move(seq, targetMailbox: allMail);
+          moved = true;
+        } catch (_) {}
+      }
+
+      if (!moved) {
+        // In Gmail IMAP, marking deleted in INBOX and expunging removes the \Inbox label (archives it)
+        await client.markDeleted(seq);
+        await client.expunge();
+      }
+
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      if (client.isLoggedIn) {
+        try {
+          await client.logout();
+        } catch (_) {}
+      }
+    }
+  }
 }
 
 typedef SliceEmailSyncService = BankEmailSyncService;

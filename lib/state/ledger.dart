@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -264,6 +265,9 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     String note = '',
     String? pendingInboxId,
   }) async {
+    final pendingItem = pendingInboxId != null
+        ? state.valueOrNull?.pendingInbox.where((p) => p.id == pendingInboxId).firstOrNull
+        : null;
     await _repo.splitBill(
       totalAmountPaise: totalAmountPaise,
       mySharePaise: mySharePaise,
@@ -274,6 +278,9 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
       note: note,
       pendingInboxId: pendingInboxId,
     );
+    if (pendingItem?.messageId != null && pendingItem!.messageId!.isNotEmpty) {
+      unawaited(archiveProcessedEmail(pendingItem.messageId));
+    }
     await _reload();
   }
 
@@ -387,13 +394,38 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
       note: note,
       merchant: merchant,
     );
+    if (pending.messageId != null && pending.messageId!.isNotEmpty) {
+      unawaited(archiveProcessedEmail(pending.messageId));
+    }
     await _reload();
     return txn;
   }
 
   Future<void> dismissInboxTransaction(String id) async {
+    final pendingItem = state.valueOrNull?.pendingInbox.where((p) => p.id == id).firstOrNull;
     await _repo.dismissPendingTransaction(id);
+    if (pendingItem?.messageId != null && pendingItem!.messageId!.isNotEmpty) {
+      unawaited(archiveProcessedEmail(pendingItem.messageId));
+    }
     await _reload();
+  }
+
+  /// Non-blocking background worker to archive processed bank/Slice transaction emails in Gmail.
+  Future<void> archiveProcessedEmail(String? messageId) async {
+    if (messageId == null || messageId.trim().isEmpty) return;
+    final s = state.valueOrNull?.settings;
+    if (s == null || !s.emailSyncEnabled) return;
+    if (s.emailSyncAddress.trim().isEmpty || s.emailSyncAppPassword.trim().isEmpty) return;
+
+    try {
+      await _emailSyncService.archiveEmail(
+        email: s.emailSyncAddress,
+        appPassword: s.emailSyncAppPassword,
+        messageId: messageId,
+      );
+    } catch (_) {
+      // Non-critical background task
+    }
   }
 
   /// Compacts and defragments database pages and re-optimizes query planner statistics.
