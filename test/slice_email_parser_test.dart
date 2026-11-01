@@ -131,5 +131,144 @@ RRN                 630246907777
       expect(result.occurredAt.month, 10);
       expect(result.occurredAt.day, 29);
     });
+
+    test('Parses HDFC Bank UPI debit email', () {
+      const subject = 'Alert: Update on your HDFC Bank Account';
+      const body = '''
+Dear Customer,
+Rs.450.00 has been debited from account **1234 to SWIGGY on 28-OCT-26 via UPI txn id 630246906599.
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 45000);
+      expect(result.merchant, 'SWIGGY');
+      expect(result.isDebit, isTrue);
+      expect(result.rawSnippet, contains('RRN: 630246906599'));
+    });
+
+    test('Parses HDFC Bank Credit Card spend', () {
+      const subject = 'Transaction alert for your HDFC Bank Credit Card';
+      const body = '''
+INR 1,250.00 spent on your HDFC Bank Card ending 5678 at AMAZON INDIA on 29-10-2026.
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 125000);
+      expect(result.merchant, 'AMAZON INDIA');
+      expect(result.isDebit, isTrue);
+    });
+
+    test('Parses SBI UPI debit with compressed date', () {
+      const subject = 'Transaction Alert from SBI';
+      const body = '''
+Dear SBI User, your A/C ending 4321 debited by Rs 300.00 on 29Oct26 transfer to Ramesh Tea Stall Ref No 630246906599.
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 30000);
+      expect(result.merchant, 'Ramesh Tea Stall');
+      expect(result.isDebit, isTrue);
+      expect(result.occurredAt.day, 29);
+      expect(result.occurredAt.month, 10);
+      expect(result.occurredAt.year, 2026);
+    });
+
+    test('Parses ICICI Bank debit with Info UPI tag', () {
+      const subject = 'Transaction alert for your ICICI Bank Account';
+      const body = '''
+Dear Customer, Your ICICI Bank Account XX123 has been debited with INR 250.00 on 29-Oct-26. Info: UPI*ZOMATO*630246906599*Pay.
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 25000);
+      expect(result.merchant, 'ZOMATO');
+      expect(result.isDebit, isTrue);
+    });
+
+    test('Parses Axis Bank Card spend', () {
+      const subject = 'Transaction alert on Axis Bank Credit Card';
+      const body = '''
+Rs. 320.00 was spent on your Axis Bank Card ending 5555 on 29-10-2026 14:30:15 at MCDONALDS.
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 32000);
+      expect(result.merchant, 'MCDONALDS');
+      expect(result.isDebit, isTrue);
+    });
+
+    test('Parses Kotak Bank payment', () {
+      const subject = 'Kotak Bank: Transaction Alert';
+      const body = '''
+Sent Rs. 150.00 from Kotak Bank A/c ending 1234 to Chaayos on 29-Oct-26. UPI Ref: 123456789.
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 15000);
+      expect(result.merchant, 'Chaayos');
+      expect(result.isDebit, isTrue);
+    });
+
+    test('Parses Jupiter / Federal Bank debit', () {
+      const subject = 'You spent ₹220 at Blue Tokai';
+      const body = 'You paid ₹220 at Blue Tokai using your Federal Bank debit card.';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 22000);
+      expect(result.merchant, 'Blue Tokai');
+      expect(result.isDebit, isTrue);
+    });
+
+    test('Parses generic bank credit/transfer', () {
+      const subject = 'Credit Alert: Account update';
+      const body = '''
+INR 2,500.00 is credited to your account **1234 on 29-OCT-26 by transfer from Sneha Sharma.
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 250000);
+      expect(result.merchant, 'Sneha Sharma');
+      expect(result.isDebit, isFalse);
+    });
   });
 }

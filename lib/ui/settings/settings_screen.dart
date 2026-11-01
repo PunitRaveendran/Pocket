@@ -7,6 +7,7 @@ import '../../core/backup.dart';
 import '../../core/biometrics.dart';
 import '../../core/export.dart';
 import '../../core/money.dart';
+import '../../core/slice_email_parser.dart';
 import '../../data/models.dart';
 import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
@@ -15,7 +16,9 @@ import '../../theme/tokens.dart';
 import '../sheets/adjust_balance_sheet.dart';
 import '../sheets/receipt_sheet.dart';
 import '../widgets/amount_pad.dart';
+import '../widgets/app_password_guide_sheet.dart';
 import '../widgets/category_icon.dart';
+import '../widgets/chips.dart';
 import '../widgets/cycle_day_picker.dart';
 import '../widgets/hairline.dart';
 import '../widgets/primary_button.dart';
@@ -349,20 +352,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           const SizedBox(height: Space.x3),
-          // Section: Bank & Email Sync (Slice)
+          // Section: Bank & Email Sync (Universal)
           _sectionHeader(t, 'AUTOMATION & SYNC'),
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
               tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
               leading: Icon(Icons.sync_alt_rounded, size: 20, color: t.inkSoft),
-              title: Text('Slice Email Sync', style: TypeScale.body(t.ink)),
+              title: Text('Bank Email Auto-Sync', style: TypeScale.body(t.ink)),
               subtitle: Text(
                 s.emailSyncEnabled
                     ? (s.emailSyncAddress.isNotEmpty
                         ? 'Active · ${s.emailSyncAddress}'
                         : 'Enabled · Credentials needed')
-                    : 'Off · Auto-detect transactions from Slice',
+                    : 'Off · Auto-detect transactions across all banks',
                 style: TypeScale.caption(s.emailSyncEnabled ? t.accent : t.inkSoft).copyWith(
                   fontWeight: s.emailSyncEnabled ? FontWeight.w600 : FontWeight.normal,
                 ),
@@ -370,9 +373,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 SwitchListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                  title: Text('Enable Slice Auto-Sync', style: TypeScale.body(t.ink)),
+                  title: Text('Enable Bank Auto-Sync', style: TypeScale.body(t.ink)),
                   subtitle: Text(
-                    'Fetches transaction emails from noreply@slice.bank.in via local on-device IMAP',
+                    'Fetches transaction emails from HDFC, SBI, Slice, ICICI & more via local on-device IMAP',
                     style: TypeScale.caption(t.inkSoft),
                   ),
                   value: s.emailSyncEnabled,
@@ -406,9 +409,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                  leading: Icon(Icons.help_outline_rounded, size: 18, color: t.accent),
+                  title: Text('How to get an App Password?', style: TypeScale.body(t.accent)),
+                  subtitle: Text('Step-by-step 60-second setup guide', style: TypeScale.caption(t.inkSoft)),
+                  trailing: Icon(Icons.chevron_right_rounded, size: 20, color: t.accent),
+                  onTap: () => showAppPasswordGuideSheet(context, t),
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
                   leading: Icon(Icons.mark_email_read_outlined, size: 18, color: t.inkSoft),
-                  title: Text('Slice Sender Email', style: TypeScale.body(t.ink)),
-                  subtitle: Text(s.emailSyncSender, style: TypeScale.caption(t.inkSoft)),
+                  title: Text('Monitored Banks & Senders', style: TypeScale.body(t.ink)),
+                  subtitle: Text(
+                    s.emailSyncSender.isEmpty ? 'All popular banks' : s.emailSyncSender,
+                    style: TypeScale.caption(t.inkSoft),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   trailing: Icon(Icons.edit_outlined, size: 18, color: t.inkSoft),
                   onTap: () => _editEmailSender(context, ref, s, t),
                 ),
@@ -1199,6 +1215,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           actions: [
             TextButton(
+              onPressed: () {
+                Navigator.pop(ctx, false);
+                showAppPasswordGuideSheet(context, t);
+              },
+              child: Text('Step-by-step Guide', style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600)),
+            ),
+            TextButton(
               onPressed: () => Navigator.pop(ctx, false),
               child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
             ),
@@ -1223,42 +1246,82 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Settings settings,
     PaperTokens t,
   ) async {
-    final controller = TextEditingController(text: settings.emailSyncSender);
+    final controller = TextEditingController(
+      text: settings.emailSyncSender.isEmpty ? BankPresets.defaultSendersString : settings.emailSyncSender,
+    );
+    final banks = BankPresets.all;
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Slice Sender Email', style: TypeScale.heading(t.ink)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Default is noreply@slice.bank.in. Only change if Slice uses another address for transaction alerts.',
-              style: TypeScale.caption(t.inkSoft),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('Monitored Banks & Senders', style: TypeScale.heading(t.ink)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Select banks to auto-include their sender addresses, or customize below:',
+                  style: TypeScale.caption(t.inkSoft),
+                ),
+                const SizedBox(height: Space.x3),
+                Wrap(
+                  spacing: Space.x2,
+                  runSpacing: Space.x2,
+                  children: [
+                    for (final b in banks) ...[
+                      LedgerChip(
+                        label: b.displayName,
+                        selected: controller.text.contains(b.senders.first),
+                        onTap: () {
+                          setDialogState(() {
+                            final current = controller.text
+                                .split(RegExp(r'[,;]'))
+                                .map((s) => s.trim())
+                                .where((s) => s.isNotEmpty)
+                                .toSet();
+                            if (current.contains(b.senders.first)) {
+                              for (final s in b.senders) {
+                                current.remove(s);
+                              }
+                            } else {
+                              current.addAll(b.senders);
+                            }
+                            controller.text = current.join(', ');
+                          });
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: Space.x3),
+                Text('Sender addresses (comma-separated):', style: TypeScale.caption(t.inkSoft)),
+                const SizedBox(height: Space.x1),
+                TextField(
+                  controller: controller,
+                  maxLines: 3,
+                  style: TypeScale.body(t.ink),
+                  decoration: InputDecoration(
+                    hintText: BankPresets.defaultSendersString,
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: t.rule)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: t.accent)),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: Space.x3),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              style: TypeScale.body(t.ink),
-              decoration: InputDecoration(
-                hintText: 'noreply@slice.bank.in',
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
-                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.accent)),
-              ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(Copy.save, style: TypeScale.body(t.accent)),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(Copy.save, style: TypeScale.body(t.accent)),
-          ),
-        ],
       ),
     );
     if (ok == true) {

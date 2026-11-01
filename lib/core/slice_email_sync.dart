@@ -1,8 +1,9 @@
 import 'package:enough_mail/enough_mail.dart';
 import 'slice_email_parser.dart';
+export 'slice_email_parser.dart';
 
-class SliceSyncResult {
-  const SliceSyncResult({
+class BankSyncResult {
+  const BankSyncResult({
     required this.success,
     this.newCount = 0,
     this.errorMessage,
@@ -15,11 +16,14 @@ class SliceSyncResult {
   final List<ParsedEmailTransaction> transactions;
 }
 
-/// On-device IMAP sync service to fetch and parse Slice Bank transaction emails.
-class SliceEmailSyncService {
-  const SliceEmailSyncService();
+typedef SliceSyncResult = BankSyncResult;
 
-  Future<SliceSyncResult> sync({
+/// On-device IMAP sync service to fetch and parse bank and UPI transaction emails
+/// (Slice, HDFC, SBI, ICICI, Axis, Kotak, Jupiter/Fi, Federal Bank, etc.).
+class BankEmailSyncService {
+  const BankEmailSyncService();
+
+  Future<BankSyncResult> sync({
     required String email,
     required String appPassword,
     String sender = 'noreply@slice.bank.in',
@@ -29,11 +33,19 @@ class SliceEmailSyncService {
     final cleanPassword = appPassword.replaceAll(' ', '').trim();
 
     if (cleanEmail.isEmpty || cleanPassword.isEmpty) {
-      return const SliceSyncResult(
+      return const BankSyncResult(
         success: false,
         errorMessage: 'Email or Google App Password is empty.',
       );
     }
+
+    final rawSenders = sender
+        .split(RegExp(r'[,;]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final senders = rawSenders.isEmpty ? BankPresets.allSenders : rawSenders;
 
     final client = ImapClient(isLogEnabled: false);
     try {
@@ -41,7 +53,7 @@ class SliceEmailSyncService {
       try {
         await client.login(cleanEmail, cleanPassword);
       } catch (loginError) {
-        return SliceSyncResult(
+        return BankSyncResult(
           success: false,
           errorMessage: 'Login failed: Invalid email or App Password ($loginError)',
         );
@@ -54,66 +66,76 @@ class SliceEmailSyncService {
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       final formattedSince = '${sinceDate.day}-${months[sinceDate.month - 1]}-${sinceDate.year}';
 
-      final searchRes = await client.searchMessages(
-        searchCriteria: 'FROM "$sender" SINCE $formattedSince',
-      );
-
-      var seq = searchRes.matchingSequence;
-      if (seq == null || seq.isEmpty) {
-        // Fallback: search for any email with 'slice' in FROM in case subdomain differed
-        try {
-          final fallbackRes = await client.searchMessages(
-            searchCriteria: 'FROM "slice" SINCE $formattedSince',
-          );
-          seq = fallbackRes.matchingSequence;
-        } catch (_) {}
-      }
-
-      if (seq == null || seq.isEmpty) {
-        return const SliceSyncResult(success: true, newCount: 0);
-      }
-
-      // Fetch the messages content
-      final fetchRes = await client.fetchMessages(
-        seq,
-        'BODY.PEEK[]',
-      );
-
       final parsedList = <ParsedEmailTransaction>[];
+      final seenMessageIds = <String>{};
 
-      for (final msg in fetchRes.messages) {
-        final rawId = msg.getHeaderValue('Message-ID') ?? msg.uid?.toString();
-        final messageId = rawId?.trim();
+      for (final s in senders) {
+        try {
+          final searchRes = await client.searchMessages(
+            searchCriteria: 'FROM "$s" SINCE $formattedSince',
+          );
 
-        if (messageId != null && messageId.isNotEmpty) {
-          if (await isAlreadyProcessed(messageId)) {
+          var seq = searchRes.matchingSequence;
+          if (seq == null || seq.isEmpty) {
+            // Fallback for banks where subdomain might vary (e.g. 'slice', 'hdfcbank', etc.)
+            final domainKeyword = s.contains('@') ? s.split('@').last.split('.').first : s;
+            if (domainKeyword.length >= 4) {
+              try {
+                final fallbackRes = await client.searchMessages(
+                  searchCriteria: 'FROM "$domainKeyword" SINCE $formattedSince',
+                );
+                seq = fallbackRes.matchingSequence;
+              } catch (_) {}
+            }
+          }
+
+          if (seq == null || seq.isEmpty) {
             continue;
           }
-        }
 
-        final subject = msg.decodeSubject() ?? '';
-        final bodyText = msg.decodeContentText() ?? '';
-        final date = msg.decodeDate();
+          final fetchRes = await client.fetchMessages(
+            seq,
+            'BODY.PEEK[]',
+          );
 
-        final parsed = SliceEmailParser.parse(
-          subject: subject,
-          bodyText: bodyText,
-          emailDate: date,
-          messageId: messageId,
-        );
+          for (final msg in fetchRes.messages) {
+            final rawId = msg.getHeaderValue('Message-ID') ?? msg.uid?.toString();
+            final messageId = rawId?.trim();
 
-        if (parsed != null) {
-          parsedList.add(parsed);
+            if (messageId != null && messageId.isNotEmpty) {
+              if (seenMessageIds.contains(messageId) || await isAlreadyProcessed(messageId)) {
+                continue;
+              }
+              seenMessageIds.add(messageId);
+            }
+
+            final subject = msg.decodeSubject() ?? '';
+            final bodyText = msg.decodeContentText() ?? '';
+            final date = msg.decodeDate();
+
+            final parsed = BankEmailParser.parse(
+              subject: subject,
+              bodyText: bodyText,
+              emailDate: date,
+              messageId: messageId,
+            );
+
+            if (parsed != null) {
+              parsedList.add(parsed);
+            }
+          }
+        } catch (_) {
+          // If searching or fetching for one bank sender fails, proceed to next
         }
       }
 
-      return SliceSyncResult(
+      return BankSyncResult(
         success: true,
         newCount: parsedList.length,
         transactions: parsedList,
       );
     } catch (e) {
-      return SliceSyncResult(
+      return BankSyncResult(
         success: false,
         errorMessage: 'Sync error: $e',
       );
@@ -126,3 +148,5 @@ class SliceEmailSyncService {
     }
   }
 }
+
+typedef SliceEmailSyncService = BankEmailSyncService;
