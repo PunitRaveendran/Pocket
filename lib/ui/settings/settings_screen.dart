@@ -556,6 +556,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                  leading: Icon(Icons.label_outline_rounded, size: 18, color: t.inkSoft),
+                  title: Text('Gmail Inbox Organization', style: TypeScale.body(t.ink)),
+                  subtitle: Text(
+                    'Processed emails are moved to the "Slice" label and removed from Inbox',
+                    style: TypeScale.caption(t.inkSoft),
+                  ),
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
                   leading: Icon(Icons.refresh_rounded, size: 18, color: t.accent),
                   title: Text('Test & Sync Email Now', style: TypeScale.body(t.accent)),
                   subtitle: Text(
