@@ -297,6 +297,48 @@ void main() {
     expect(find.text('₹450'), findsWidgets);
   });
 
+  testWidgets('OutingsScreen renders past outings from previous cycle correctly', (tester) async {
+    final prevMonthOuting = Outing(
+      id: 'out_prev',
+      title: 'Other Expenses',
+      localDate: const LocalDate(2026, 10, 31),
+      note: '',
+    );
+    final prevTxn = Txn(
+      id: 't_out_1',
+      amountPaise: 52500,
+      direction: Direction.debit,
+      occurredAtMs: 1000,
+      localDate: const LocalDate(2026, 10, 31),
+      merchant: 'Treat',
+      categoryId: 'misc',
+      bucket: Bucket.outing,
+      outingId: 'out_prev',
+      note: '',
+    );
+
+    final ledgerWithPastOuting = Ledger(
+      settings: const Settings(
+        stipendPaise: 100000,
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+      ),
+      categories: const [],
+      transactions: [prevTxn],
+      outings: [prevMonthOuting],
+    );
+
+    await tester.pumpWidget(_wrap(const OutingsScreen(), ledger: ledgerWithPastOuting));
+    await tester.pumpAndSettle();
+
+    // Verify past outings are clearly displayed
+    expect(find.text('Past Trips & Outings'), findsOneWidget);
+    expect(find.text('Other Expenses'), findsOneWidget);
+    expect(find.text('Treat'), findsOneWidget);
+    expect(find.text('₹525'), findsWidgets);
+  });
+
   testWidgets('InsightsScreen renders pacing card, chart, and category proportions', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;

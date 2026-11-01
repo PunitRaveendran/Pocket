@@ -1085,6 +1085,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final success = await BackupService.restoreFromJson(controller.text.trim(), repo);
       if (context.mounted) {
         if (success) {
+          await ref.read(ledgerProvider.notifier).reload();
           ref.invalidate(ledgerProvider);
           await _refreshStorageSize();
           if (context.mounted) {

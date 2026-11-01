@@ -144,6 +144,270 @@ void main() {
       expect(jsonStr, contains('Rahul'));
       expect(jsonStr, contains('Canteen'));
     });
+
+    test('restoreFromJson cleanly restores user backup with past outings and friend splits', () async {
+      final repo = PocketRepository(PocketDatabase.instance, inMemory: true);
+      const userJson = '''{
+  "pocket_version": 3,
+  "exported_at": "2026-11-01T11:18:19.091241",
+  "settings": {
+    "stipend_paise": 100000,
+    "cycle_start_day": 1,
+    "hide_amounts": false,
+    "onboarded": true,
+    "pacing_mode": "weekly",
+    "leftover_policy": "dynamicDistribute",
+    "biometric_enabled": false,
+    "app_theme_mode": "light",
+    "rollover_unspent": true
+  },
+  "categories": [
+    {
+      "id": "food",
+      "name": "Food",
+      "icon": "food",
+      "is_system": true,
+      "sort_order": 0
+    },
+    {
+      "id": "snacks",
+      "name": "Snacks",
+      "icon": "snacks",
+      "is_system": true,
+      "sort_order": 1
+    },
+    {
+      "id": "study",
+      "name": "Study",
+      "icon": "study",
+      "is_system": true,
+      "sort_order": 2
+    },
+    {
+      "id": "misc",
+      "name": "Misc",
+      "icon": "misc",
+      "is_system": true,
+      "sort_order": 3
+    },
+    {
+      "id": "income",
+      "name": "Top-Up",
+      "icon": "savings",
+      "is_system": true,
+      "sort_order": 4
+    },
+    {
+      "id": "de7a1a36-d5c6-4446-8954-3c9d59579c55",
+      "name": "Puffs",
+      "icon": "food",
+      "is_system": false,
+      "sort_order": 5
+    },
+    {
+      "id": "4c357471-629a-4d04-b6b9-a76074397337",
+      "name": "Soft Drinks",
+      "icon": "snacks",
+      "is_system": false,
+      "sort_order": 6
+    }
+  ],
+  "fixed_deductions": [],
+  "outings": [
+    {
+      "id": "82b755b0-12a5-4543-8b62-bd422f261013",
+      "title": "Other Expenses",
+      "local_date": "2026-10-31",
+      "note": ""
+    }
+  ],
+  "transactions": [
+    {
+      "id": "1fcf95f4-48d1-4674-9519-ea79ad8c1fe7",
+      "amount_paise": 1000,
+      "direction": "debit",
+      "occurred_at_ms": 1793449175181,
+      "local_date": "2026-10-31",
+      "merchant": "Tea",
+      "category_id": "snacks",
+      "bucket": "daily",
+      "outing_id": null,
+      "note": "Split with Manjari (My share of ₹22)"
+    },
+    {
+      "id": "c010b122-c08e-42db-962e-67f389d2babe",
+      "amount_paise": 52500,
+      "direction": "debit",
+      "occurred_at_ms": 1793437629431,
+      "local_date": "2026-10-31",
+      "merchant": "Treat",
+      "category_id": "misc",
+      "bucket": "outing",
+      "outing_id": "82b755b0-12a5-4543-8b62-bd422f261013",
+      "note": ""
+    },
+    {
+      "id": "257c2e1e-9f5a-4eb1-ba9b-8161fff09746",
+      "amount_paise": 1500,
+      "direction": "debit",
+      "occurred_at_ms": 1793435363934,
+      "local_date": "2026-10-31",
+      "merchant": "JK Print",
+      "category_id": "study",
+      "bucket": "daily",
+      "outing_id": null,
+      "note": "Slice · Slice Payment"
+    },
+    {
+      "id": "d73781e8-1824-414f-a9c2-aca42426170c",
+      "amount_paise": 3500,
+      "direction": "debit",
+      "occurred_at_ms": 1793420698479,
+      "local_date": "2026-10-31",
+      "merchant": "JK Book",
+      "category_id": "study",
+      "bucket": "daily",
+      "outing_id": null,
+      "note": "Slice · Slice Payment"
+    },
+    {
+      "id": "5ba129bb-5bc6-4ff7-bb4d-cb283a0d3500",
+      "amount_paise": 75000,
+      "direction": "debit",
+      "occurred_at_ms": 1793392253871,
+      "local_date": "2026-10-31",
+      "merchant": "Mouse",
+      "category_id": "misc",
+      "bucket": "outing",
+      "outing_id": "82b755b0-12a5-4543-8b62-bd422f261013",
+      "note": ""
+    },
+    {
+      "id": "f9c554cc-7b70-47ba-acf9-866879ff2a06",
+      "amount_paise": 161000,
+      "direction": "debit",
+      "occurred_at_ms": 1793392226861,
+      "local_date": "2026-10-31",
+      "merchant": "Train",
+      "category_id": "misc",
+      "bucket": "outing",
+      "outing_id": "82b755b0-12a5-4543-8b62-bd422f261013",
+      "note": ""
+    },
+    {
+      "id": "9a2cebd4-ba6b-4bb9-983a-38d47fbf89d4",
+      "amount_paise": 90000,
+      "direction": "debit",
+      "occurred_at_ms": 1793392197941,
+      "local_date": "2026-10-31",
+      "merchant": "Recharge",
+      "category_id": "misc",
+      "bucket": "outing",
+      "outing_id": "82b755b0-12a5-4543-8b62-bd422f261013",
+      "note": ""
+    }
+  ],
+  "friend_splits": [
+    {
+      "id": "34ebd4af-26e4-4307-b04d-db0458902bb7",
+      "friend_name": "Manjari",
+      "amount_paise": 1200,
+      "direction": "you_are_owed",
+      "occurred_at_ms": 1793449175182,
+      "local_date": "2026-10-31",
+      "note": "Tea split",
+      "is_settled": false,
+      "settled_at_ms": null
+    },
+    {
+      "id": "6c02086e-1361-409b-8ac0-0be0c49aafa5",
+      "friend_name": "Punit",
+      "amount_paise": 30000,
+      "direction": "you_are_owed",
+      "occurred_at_ms": 1793443460204,
+      "local_date": "2026-10-31",
+      "note": "Krishna split",
+      "is_settled": false,
+      "settled_at_ms": null
+    },
+    {
+      "id": "19d7b33c-0491-4838-8a21-e66879fc1a99",
+      "friend_name": "Jayakrishna",
+      "amount_paise": 20000,
+      "direction": "you_are_owed",
+      "occurred_at_ms": 1793443460203,
+      "local_date": "2026-10-31",
+      "note": "Krishna split",
+      "is_settled": false,
+      "settled_at_ms": null
+    },
+    {
+      "id": "8663abb9-9db5-48a1-b162-7bb9c3b719b9",
+      "friend_name": "Surya",
+      "amount_paise": 20000,
+      "direction": "you_are_owed",
+      "occurred_at_ms": 1793443460202,
+      "local_date": "2026-10-31",
+      "note": "Krishna split",
+      "is_settled": false,
+      "settled_at_ms": null
+    },
+    {
+      "id": "da0a86dc-3a0f-4223-8140-9fb581ea3368",
+      "friend_name": "Jayakrishna",
+      "amount_paise": 3500,
+      "direction": "you_owe",
+      "occurred_at_ms": 1793392104254,
+      "local_date": "2026-10-31",
+      "note": "",
+      "is_settled": true,
+      "settled_at_ms": 1793420713564
+    },
+    {
+      "id": "4aad9eb8-3382-473d-a6f5-013ad5c7499f",
+      "friend_name": "Surya",
+      "amount_paise": 2500,
+      "direction": "you_are_owed",
+      "occurred_at_ms": 1793391753468,
+      "local_date": "2026-10-31",
+      "note": "Bill Split split",
+      "is_settled": true,
+      "settled_at_ms": 1793391967011
+    },
+    {
+      "id": "d2740184-8f1c-49f4-8e3b-9fe9de6a7809",
+      "friend_name": "Punit",
+      "amount_paise": 2500,
+      "direction": "you_are_owed",
+      "occurred_at_ms": 1793391753467,
+      "local_date": "2026-10-31",
+      "note": "Bill Split split",
+      "is_settled": true,
+      "settled_at_ms": 1793391970390
+    }
+  ]
+}''';
+
+      final success = await BackupService.restoreFromJson(userJson, repo);
+      expect(success, isTrue);
+
+      final loaded = await repo.load();
+      expect(loaded.outings.length, 1);
+      expect(loaded.outings.first.title, 'Other Expenses');
+      expect(loaded.outings.first.localDate, const LocalDate(2026, 10, 31));
+
+      final outingTxns = loaded.transactions.where((t) => t.bucket == Bucket.outing).toList();
+      expect(outingTxns.length, 4);
+      final outingTotal = outingTxns.fold<int>(0, (sum, t) => sum + t.amountPaise);
+      expect(outingTotal, 378500); // ₹3,785.00
+
+      expect(loaded.friendSplits.length, 7);
+      expect(loaded.savedFriends, contains('Manjari'));
+      expect(loaded.savedFriends, contains('Jayakrishna'));
+      expect(loaded.settings.rolloverUnspent, isTrue);
+      expect(loaded.categories.any((c) => c.name == 'Puffs'), isTrue);
+      expect(loaded.categories.any((c) => c.name == 'Soft Drinks'), isTrue);
+    });
   });
 
   group('Extra Money Top-Up & Friend Repayments', () {

@@ -113,24 +113,29 @@ class BackupService {
         rolloverUnspent: sMap['rollover_unspent'] as bool? ?? true,
       );
 
-      // 2. Pre-validate and construct Custom Categories
+      // 2. Pre-validate and construct Custom Categories and sort orders
       final catList = decoded['categories'];
       final customCategories = <Category>[];
+      final systemCategorySortOrders = <String, int>{};
       if (catList is List) {
         var sortOrder = 4;
         for (final item in catList) {
           if (item is Map<String, dynamic>) {
             final isSys = item['is_system'] as bool? ?? false;
-            if (!isSys) {
+            final id = item['id'] as String? ?? '';
+            final itemOrder = item['sort_order'] as int?;
+            if (isSys && id.isNotEmpty && itemOrder != null) {
+              systemCategorySortOrders[id] = itemOrder;
+            } else if (!isSys) {
               final name = (item['name'] as String? ?? '').trim();
               if (name.isNotEmpty) {
                 customCategories.add(
                   Category(
-                    id: (item['id'] as String?) ?? 'cat_${customCategories.length}',
+                    id: id.isNotEmpty ? id : 'cat_${customCategories.length}',
                     name: name,
                     icon: (item['icon'] as String?) ?? 'custom',
                     isSystem: false,
-                    sortOrder: sortOrder++,
+                    sortOrder: itemOrder ?? sortOrder++,
                   ),
                 );
               }
@@ -257,6 +262,7 @@ class BackupService {
         transactions: transactions,
         friendSplits: friendSplits,
         savedFriends: savedFriends,
+        systemCategorySortOrders: systemCategorySortOrders,
       );
     } catch (_) {
       return false;

@@ -32,6 +32,10 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     return ledger;
   }
 
+  Future<void> reload() async {
+    await _reload();
+  }
+
   Future<void> _reload() async {
     final loaded = await _repo.load();
     final prev = state.valueOrNull;

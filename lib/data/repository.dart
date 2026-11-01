@@ -972,13 +972,25 @@ class PocketRepository {
     required List<Txn> transactions,
     required List<FriendSplit> friendSplits,
     List<String> savedFriends = const [],
+    Map<String, int> systemCategorySortOrders = const {},
   }) async {
     if (_isInMemory) {
       _webSettings = settings;
+      final sysCategories = systemCategories.map((c) {
+        final order = systemCategorySortOrders[c.id];
+        return Category(
+          id: c.id,
+          name: c.name,
+          icon: c.icon,
+          isSystem: c.isSystem,
+          sortOrder: order ?? c.sortOrder,
+        );
+      }).toList();
       _webCategories
         ..clear()
-        ..addAll(systemCategories)
-        ..addAll(customCategories);
+        ..addAll(sysCategories)
+        ..addAll(customCategories)
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
       _webDeductions
         ..clear()
         ..addAll(fixedDeductions);
@@ -991,9 +1003,13 @@ class PocketRepository {
       _webSplits
         ..clear()
         ..addAll(friendSplits);
+      final allFriends = <String>{
+        ...savedFriends,
+        ...friendSplits.map((s) => s.friendName.trim()).where((n) => n.isNotEmpty),
+      };
       _webFriends
         ..clear()
-        ..addAll(savedFriends.isNotEmpty ? savedFriends : ['Surya', 'Punit', 'Sneh', 'Rahul']);
+        ..addAll(allFriends.isNotEmpty ? allFriends : ['Surya', 'Punit', 'Sneh', 'Rahul']);
       return true;
     }
 
@@ -1009,14 +1025,15 @@ class PocketRepository {
         await txn.delete('categories');
         await txn.delete('settings');
 
-        // 2. Re-seed system categories
+        // 2. Re-seed system categories with restored sort orders
         for (final c in systemCategories) {
+          final order = systemCategorySortOrders[c.id] ?? c.sortOrder;
           await txn.insert('categories', {
             'id': c.id,
             'name': c.name,
             'icon': c.icon,
             'is_system': 1,
-            'sort_order': c.sortOrder,
+            'sort_order': order,
           });
         }
 
@@ -1031,6 +1048,7 @@ class PocketRepository {
         await put('leftover_policy', settings.leftoverPolicy.name);
         await put('biometric_enabled', settings.biometricEnabled ? '1' : '0');
         await put('app_theme_mode', settings.appThemeMode.name);
+        await put('rollover_unspent', settings.rolloverUnspent ? '1' : '0');
 
         // 4. Re-insert custom categories
         for (final c in customCategories) {
@@ -1068,8 +1086,12 @@ class PocketRepository {
           await txn.insert('friend_splits', _splitToRow(s));
         }
 
-        // 9. Batch insert saved friends
-        final friendsToSeed = savedFriends.isNotEmpty ? savedFriends : ['Surya', 'Punit', 'Sneh', 'Rahul'];
+        // 9. Batch insert saved friends (combining explicit saved friends + splits friend names)
+        final allFriends = <String>{
+          ...savedFriends,
+          ...friendSplits.map((s) => s.friendName.trim()).where((n) => n.isNotEmpty),
+        };
+        final friendsToSeed = allFriends.isNotEmpty ? allFriends : ['Surya', 'Punit', 'Sneh', 'Rahul'];
         for (final friend in friendsToSeed) {
           await txn.insert(
             'friends',

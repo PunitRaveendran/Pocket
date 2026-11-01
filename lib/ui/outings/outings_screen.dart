@@ -14,11 +14,20 @@ import '../sheets/outing_sheet.dart';
 import '../widgets/hairline.dart';
 import '../widgets/primary_button.dart';
 
-class OutingsScreen extends ConsumerWidget {
+enum OutingsFilter { thisMonth, allTime }
+
+class OutingsScreen extends ConsumerStatefulWidget {
   const OutingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OutingsScreen> createState() => _OutingsScreenState();
+}
+
+class _OutingsScreenState extends ConsumerState<OutingsScreen> {
+  OutingsFilter _filter = OutingsFilter.thisMonth;
+
+  @override
+  Widget build(BuildContext context) {
     final t = TokenScope.of(context);
     final async = ref.watch(
       ledgerProvider.select(
@@ -39,9 +48,19 @@ class OutingsScreen extends ConsumerWidget {
         );
         final today = LocalDate.today();
         final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
-        final extra = extraThisCycle(ledger, cycle);
+        final extraCycle = extraThisCycle(ledger, cycle);
         final hide = ledger.settings.hideAmounts;
-        final groups = _groups(ledger, cycle);
+        final allGroups = _allGroups(ledger);
+
+        final currentCycleGroups = allGroups.where((g) {
+          return cycle.contains(g.date) || g.txns.any((t) => cycle.contains(t.localDate));
+        }).toList();
+
+        final pastCycleGroups = allGroups.where((g) => !currentCycleGroups.contains(g)).toList();
+
+        final totalAllTime = allGroups.fold<int>(0, (sum, g) => sum + g.total);
+        final displayAmount = _filter == OutingsFilter.thisMonth ? extraCycle : totalAllTime;
+        final displayLabel = _filter == OutingsFilter.thisMonth ? Copy.extraThisMonth : 'total in all outings';
 
         return CustomScrollView(
           slivers: [
@@ -57,17 +76,57 @@ class OutingsScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: Space.x6),
                     Semantics(
-                      label: '${Money.spokenRupees(extra)} ${Copy.extraThisMonth}',
+                      label: '${Money.spokenRupees(displayAmount)} $displayLabel',
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          Money.formatPaise(extra, hide: hide),
+                          Money.formatPaise(displayAmount, hide: hide),
                           style: TypeScale.figure(t.ink),
                         ),
                       ),
                     ),
-                    Text(Copy.extraThisMonth, style: TypeScale.body(t.inkSoft)),
+                    Text(displayLabel, style: TypeScale.body(t.inkSoft)),
+                    if (allGroups.isNotEmpty) ...[
+                      const SizedBox(height: Space.x4),
+                      Row(
+                        children: [
+                          ChoiceChip(
+                            selected: _filter == OutingsFilter.thisMonth,
+                            onSelected: (val) {
+                              HapticFeedback.selectionClick();
+                              setState(() => _filter = OutingsFilter.thisMonth);
+                            },
+                            label: Text('This Month (${Money.formatPaise(extraCycle, hide: hide)})'),
+                            selectedColor: t.accent.withValues(alpha: 0.15),
+                            labelStyle: TypeScale.caption(
+                              _filter == OutingsFilter.thisMonth ? t.accent : t.inkSoft,
+                            ),
+                            backgroundColor: t.card,
+                            side: BorderSide(
+                              color: _filter == OutingsFilter.thisMonth ? t.accent : t.rule,
+                            ),
+                          ),
+                          const SizedBox(width: Space.x2),
+                          ChoiceChip(
+                            selected: _filter == OutingsFilter.allTime,
+                            onSelected: (val) {
+                              HapticFeedback.selectionClick();
+                              setState(() => _filter = OutingsFilter.allTime);
+                            },
+                            label: Text('All Outings (${allGroups.length})'),
+                            selectedColor: t.accent.withValues(alpha: 0.15),
+                            labelStyle: TypeScale.caption(
+                              _filter == OutingsFilter.allTime ? t.accent : t.inkSoft,
+                            ),
+                            backgroundColor: t.card,
+                            side: BorderSide(
+                              color: _filter == OutingsFilter.allTime ? t.accent : t.rule,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: Space.x6),
                     PrimaryButton(
                       label: Copy.addOuting,
@@ -80,7 +139,7 @@ class OutingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            if (groups.isEmpty)
+            if (allGroups.isEmpty)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: Space.margin, vertical: Space.x6),
@@ -105,22 +164,129 @@ class OutingsScreen extends ConsumerWidget {
                   ),
                 ),
               )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: Space.margin),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final g = groups[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: Space.x4),
-                        child: _OutingCard(group: g, hideAmounts: hide),
-                      );
-                    },
-                    childCount: groups.length,
+            else if (_filter == OutingsFilter.thisMonth) ...[
+              if (currentCycleGroups.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final g = currentCycleGroups[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: Space.x4),
+                          child: _OutingCard(group: g, hideAmounts: hide),
+                        );
+                      },
+                      childCount: currentCycleGroups.length,
+                    ),
+                  ),
+                )
+              else
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(Space.margin, 0, Space.margin, Space.x4),
+                    child: Container(
+                      padding: const EdgeInsets.all(Space.x3),
+                      decoration: BoxDecoration(
+                        color: t.card,
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                        border: Border.all(color: t.rule),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, size: 16, color: t.inkSoft),
+                          const SizedBox(width: Space.x2),
+                          Expanded(
+                            child: Text(
+                              'No extra spends recorded this month. Previous outings are shown below.',
+                              style: TypeScale.caption(t.inkSoft),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              if (pastCycleGroups.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(Space.margin, Space.x2, Space.margin, Space.x3),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Past Trips & Outings', style: TypeScale.heading(t.ink)),
+                        Text(
+                          '${pastCycleGroups.length} ${pastCycleGroups.length == 1 ? 'trip' : 'trips'}',
+                          style: TypeScale.caption(t.inkSoft),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final g = pastCycleGroups[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: Space.x4),
+                          child: _OutingCard(group: g, hideAmounts: hide),
+                        );
+                      },
+                      childCount: pastCycleGroups.length,
+                    ),
+                  ),
+                ),
+              ],
+            ] else ...[
+              if (currentCycleGroups.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(Space.margin, Space.x2, Space.margin, Space.x3),
+                    child: Text('This Month', style: TypeScale.heading(t.ink)),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final g = currentCycleGroups[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: Space.x4),
+                          child: _OutingCard(group: g, hideAmounts: hide),
+                        );
+                      },
+                      childCount: currentCycleGroups.length,
+                    ),
+                  ),
+                ),
+              ],
+              if (pastCycleGroups.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(Space.margin, Space.x2, Space.margin, Space.x3),
+                    child: Text('Past Trips & Outings', style: TypeScale.heading(t.ink)),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final g = pastCycleGroups[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: Space.x4),
+                          child: _OutingCard(group: g, hideAmounts: hide),
+                        );
+                      },
+                      childCount: pastCycleGroups.length,
+                    ),
+                  ),
+                ),
+              ],
+            ],
             const SliverToBoxAdapter(child: SizedBox(height: Space.x12)),
           ],
         );
@@ -321,10 +487,9 @@ class _Group {
   int get total => txns.fold(0, (a, t) => a + t.amountPaise);
 }
 
-List<_Group> _groups(Ledger ledger, PayCycle cycle) {
-  final outings = ledger.outings.where((o) => cycle.contains(o.localDate)).toList();
+List<_Group> _allGroups(Ledger ledger) {
   final result = <_Group>[];
-  for (final o in outings) {
+  for (final o in ledger.outings) {
     final txns = ledger.transactions
         .where((t) => t.bucket == Bucket.outing && t.outingId == o.id)
         .toList();
