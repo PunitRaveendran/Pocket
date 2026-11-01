@@ -148,11 +148,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
           color: t.accent,
           backgroundColor: t.card,
           onRefresh: () async {
-            if (ledger.settings.emailSyncEnabled &&
-                ledger.settings.emailSyncAddress.trim().isNotEmpty &&
-                ledger.settings.emailSyncAppPassword.trim().isNotEmpty) {
-              await ref.read(ledgerProvider.notifier).syncSliceEmails(force: true);
-            }
+            await ref.read(ledgerProvider.notifier).syncAllBankTransactions();
           },
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),

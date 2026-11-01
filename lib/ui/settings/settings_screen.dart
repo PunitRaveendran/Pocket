@@ -37,6 +37,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int? _storageSizeBytes;
   bool _isOptimizing = false;
   bool _isSyncingSlice = false;
+  bool _isSyncingSms = false;
 
   @override
   void initState() {
@@ -355,20 +356,101 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           const SizedBox(height: Space.x3),
-          // Section: Bank & Email Sync (Universal)
+          // Section: Bank SMS & Email Sync (Universal)
           _sectionHeader(t, 'AUTOMATION & SYNC'),
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
               tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
-              leading: Icon(Icons.sync_alt_rounded, size: 20, color: t.inkSoft),
+              leading: Icon(Icons.sms_rounded, size: 20, color: s.smsSyncEnabled ? t.accent : t.inkSoft),
+              title: Row(
+                children: [
+                  Text('Bank SMS Auto-Sync', style: TypeScale.body(t.ink)),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: t.accentTint,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Recommended',
+                      style: TypeScale.caption(t.accent).copyWith(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              subtitle: Text(
+                s.smsSyncEnabled
+                    ? 'Active · Instant UPI & bank SMS tracker'
+                    : 'Off · Zero passwords, local on-device SMS parsing',
+                style: TypeScale.caption(s.smsSyncEnabled ? t.accent : t.inkSoft).copyWith(
+                  fontWeight: s.smsSyncEnabled ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+              children: [
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                  title: Text('Enable SMS Auto-Sync', style: TypeScale.body(t.ink)),
+                  subtitle: Text(
+                    'Detects spends from GPay, PhonePe, Paytm, Slice, HDFC, SBI & all banks instantly. 100% on-device, no cloud.',
+                    style: TypeScale.caption(t.inkSoft),
+                  ),
+                  value: s.smsSyncEnabled,
+                  activeThumbColor: t.paper,
+                  activeTrackColor: t.accent,
+                  onChanged: (v) async {
+                    if (v) {
+                      final granted = await ref.read(smsSyncServiceProvider).requestPermission();
+                      if (granted) {
+                        await ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(smsSyncEnabled: true));
+                        await ref.read(ledgerProvider.notifier).syncSms();
+                      } else {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('SMS permission denied. Please allow SMS permission in Android settings.')),
+                          );
+                        }
+                      }
+                    } else {
+                      await ref.read(ledgerProvider.notifier).updateSettings(s.copyWith(smsSyncEnabled: false));
+                    }
+                  },
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                  leading: Icon(Icons.refresh_rounded, size: 18, color: t.accent),
+                  title: Text('Scan & Sync SMS Now', style: TypeScale.body(t.accent)),
+                  subtitle: Text(
+                    s.smsSyncLastSyncedMs != null
+                        ? 'Last scanned: ${DateFormat('d MMM, h:mm a').format(DateTime.fromMillisecondsSinceEpoch(s.smsSyncLastSyncedMs!))}'
+                        : 'Never scanned',
+                    style: TypeScale.caption(t.inkSoft),
+                  ),
+                  trailing: _isSyncingSms
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : null,
+                  onTap: _isSyncingSms ? null : () => _triggerManualSmsSync(context, ref),
+                ),
+              ],
+            ),
+          ),
+          const Hairline(indent: Space.margin),
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+              leading: Icon(Icons.mark_email_read_rounded, size: 20, color: s.emailSyncEnabled ? t.accent : t.inkSoft),
               title: Text('Bank Email Auto-Sync', style: TypeScale.body(t.ink)),
               subtitle: Text(
                 s.emailSyncEnabled
                     ? (s.emailSyncAddress.isNotEmpty
                         ? 'Active · ${s.emailSyncAddress}'
                         : 'Enabled · Credentials needed')
-                    : 'Off · Auto-detect transactions across all banks',
+                    : 'Off · Local IMAP email alerts across all banks',
                 style: TypeScale.caption(s.emailSyncEnabled ? t.accent : t.inkSoft).copyWith(
                   fontWeight: s.emailSyncEnabled ? FontWeight.w600 : FontWeight.normal,
                 ),
@@ -376,7 +458,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 SwitchListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                  title: Text('Enable Bank Auto-Sync', style: TypeScale.body(t.ink)),
+                  title: Text('Enable Bank Email Auto-Sync', style: TypeScale.body(t.ink)),
                   subtitle: Text(
                     'Fetches transaction emails from HDFC, SBI, Slice, ICICI & more via local on-device IMAP',
                     style: TypeScale.caption(t.inkSoft),
@@ -434,7 +516,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
                   leading: Icon(Icons.refresh_rounded, size: 18, color: t.accent),
-                  title: Text('Test & Sync Now', style: TypeScale.body(t.accent)),
+                  title: Text('Test & Sync Email Now', style: TypeScale.body(t.accent)),
                   subtitle: Text(
                     s.emailSyncLastSyncedMs != null
                         ? 'Last synced: ${DateFormat('d MMM, h:mm a').format(DateTime.fromMillisecondsSinceEpoch(s.emailSyncLastSyncedMs!))}'
@@ -1411,6 +1493,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _triggerManualSmsSync(BuildContext context, WidgetRef ref) async {
+    setState(() => _isSyncingSms = true);
+    try {
+      final res = await ref.read(ledgerProvider.notifier).syncSms(force: true);
+      if (context.mounted) {
+        if (res.success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                res.newCount > 0
+                    ? 'SMS sync complete! Found ${res.newCount} new transaction${res.newCount > 1 ? 's' : ''}. Check the Today tab.'
+                    : 'SMS sync complete. No new bank SMS transactions found.',
+              ),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res.errorMessage ?? 'SMS sync failed'),
+              backgroundColor: Colors.red.shade800,
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncingSms = false);
+    }
+  }
+
   Future<void> _triggerManualSync(BuildContext context, WidgetRef ref) async {
     setState(() => _isSyncingSlice = true);
     try {
@@ -1421,8 +1532,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             SnackBar(
               content: Text(
                 res.newCount > 0
-                    ? 'Sync complete! Found ${res.newCount} new Slice transaction${res.newCount > 1 ? 's' : ''}. Check the Today tab.'
-                    : 'Sync complete. No new Slice transactions found.',
+                    ? 'Sync complete! Found ${res.newCount} new bank transaction${res.newCount > 1 ? 's' : ''}. Check the Today tab.'
+                    : 'Sync complete. No new bank transactions found.',
               ),
             ),
           );

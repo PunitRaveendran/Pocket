@@ -227,6 +227,8 @@ class PocketRepository {
       emailSyncSender: map['email_sync_sender'] ?? 'noreply@slice.bank.in',
       emailSyncEnabled: map['email_sync_enabled'] == '1',
       emailSyncLastSyncedMs: int.tryParse(map['email_sync_last_synced_ms'] ?? ''),
+      smsSyncEnabled: map['sms_sync_enabled'] == '1',
+      smsSyncLastSyncedMs: int.tryParse(map['sms_sync_last_synced_ms'] ?? ''),
     );
 
     final categories = catRows
@@ -304,6 +306,10 @@ class PocketRepository {
     await put('email_sync_enabled', s.emailSyncEnabled ? '1' : '0');
     if (s.emailSyncLastSyncedMs != null) {
       await put('email_sync_last_synced_ms', '${s.emailSyncLastSyncedMs}');
+    }
+    await put('sms_sync_enabled', s.smsSyncEnabled ? '1' : '0');
+    if (s.smsSyncLastSyncedMs != null) {
+      await put('sms_sync_last_synced_ms', '${s.smsSyncLastSyncedMs}');
     }
   }
 

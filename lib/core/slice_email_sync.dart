@@ -69,7 +69,9 @@ class BankEmailSyncService {
       final parsedList = <ParsedEmailTransaction>[];
       final seenMessageIds = <String>{};
 
-      for (final s in senders) {
+      for (final rawS in senders) {
+        final s = rawS.startsWith('@') ? rawS.substring(1).trim() : rawS;
+        if (s.isEmpty) continue;
         try {
           final searchRes = await client.searchMessages(
             searchCriteria: 'FROM "$s" SINCE $formattedSince',
@@ -78,8 +80,8 @@ class BankEmailSyncService {
           var seq = searchRes.matchingSequence;
           if (seq == null || seq.isEmpty) {
             // Fallback for banks where subdomain might vary (e.g. 'slice', 'hdfcbank', etc.)
-            final domainKeyword = s.contains('@') ? s.split('@').last.split('.').first : s;
-            if (domainKeyword.length >= 4) {
+            final domainKeyword = s.contains('@') ? s.split('@').last.split('.').first : s.split('.').first;
+            if (domainKeyword.length >= 3 && domainKeyword != s) {
               try {
                 final fallbackRes = await client.searchMessages(
                   searchCriteria: 'FROM "$domainKeyword" SINCE $formattedSince',

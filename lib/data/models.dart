@@ -384,6 +384,8 @@ class Settings {
     this.emailSyncSender = 'noreply@slice.bank.in',
     this.emailSyncEnabled = false,
     this.emailSyncLastSyncedMs,
+    this.smsSyncEnabled = false,
+    this.smsSyncLastSyncedMs,
   });
 
   final int stipendPaise;
@@ -402,6 +404,8 @@ class Settings {
   final String emailSyncSender;
   final bool emailSyncEnabled;
   final int? emailSyncLastSyncedMs;
+  final bool smsSyncEnabled;
+  final int? smsSyncLastSyncedMs;
 
   int get totalFixedDeductionsPaise =>
       fixedDeductions.where((d) => d.isEnabled).fold(0, (sum, d) => sum + d.amountPaise);
@@ -426,6 +430,8 @@ class Settings {
     String? emailSyncSender,
     bool? emailSyncEnabled,
     int? emailSyncLastSyncedMs,
+    bool? smsSyncEnabled,
+    int? smsSyncLastSyncedMs,
   }) {
     return Settings(
       stipendPaise: stipendPaise ?? this.stipendPaise,
@@ -444,6 +450,8 @@ class Settings {
       emailSyncSender: emailSyncSender ?? this.emailSyncSender,
       emailSyncEnabled: emailSyncEnabled ?? this.emailSyncEnabled,
       emailSyncLastSyncedMs: emailSyncLastSyncedMs ?? this.emailSyncLastSyncedMs,
+      smsSyncEnabled: smsSyncEnabled ?? this.smsSyncEnabled,
+      smsSyncLastSyncedMs: smsSyncLastSyncedMs ?? this.smsSyncLastSyncedMs,
     );
   }
 
@@ -467,6 +475,8 @@ class Settings {
           emailSyncSender == other.emailSyncSender &&
           emailSyncEnabled == other.emailSyncEnabled &&
           emailSyncLastSyncedMs == other.emailSyncLastSyncedMs &&
+          smsSyncEnabled == other.smsSyncEnabled &&
+          smsSyncLastSyncedMs == other.smsSyncLastSyncedMs &&
           listEquals(fixedDeductions, other.fixedDeductions);
 
   @override
@@ -486,6 +496,8 @@ class Settings {
         emailSyncSender,
         emailSyncEnabled,
         emailSyncLastSyncedMs,
+        smsSyncEnabled,
+        smsSyncLastSyncedMs,
         Object.hashAll(fixedDeductions),
       );
 

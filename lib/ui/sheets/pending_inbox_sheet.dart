@@ -106,11 +106,11 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 else ...[
-                  IconButton(
-                    icon: Icon(Icons.sync_rounded, color: t.inkSoft),
-                    tooltip: 'Sync now',
-                    onPressed: _syncEmails,
-                  ),
+                    IconButton(
+                      icon: Icon(Icons.sync_rounded, color: t.inkSoft),
+                      tooltip: 'Sync now',
+                      onPressed: _syncTransactions,
+                    ),
                   PopupMenuButton<String>(
                     icon: Icon(Icons.more_vert_rounded, color: t.inkSoft),
                     tooltip: 'More options',
@@ -177,21 +177,21 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              'All Slice transactions reviewed! 🎉',
+              'All bank transactions reviewed! 🎉',
               style: TypeScale.title(t.ink).copyWith(fontSize: 17),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              'New transaction emails from noreply@slice.bank.in will automatically appear here.',
+              'New transaction SMS or emails will automatically appear here.',
               style: TypeScale.body(t.inkSoft),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
             OutlinedButton.icon(
-              onPressed: _syncEmails,
+              onPressed: _syncTransactions,
               icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Check for new emails'),
+              label: const Text('Check for new transactions'),
             ),
           ],
         ),
@@ -313,8 +313,8 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            item.direction == Direction.credit ? 'Received via Slice' : 'Paid via Slice',
-                            style: TypeScale.caption(item.direction == Direction.credit ? t.accent : t.inkSoft).copyWith(
+                            item.rawSource.toLowerCase().contains('sms') ? 'SMS Alert' : 'Bank Email',
+                            style: TypeScale.caption(t.accent).copyWith(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
                             ),
@@ -866,29 +866,56 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
     }
   }
 
-  Future<void> _syncEmails() async {
+  Future<void> _syncTransactions() async {
     setState(() => _isSyncing = true);
-    final result = await ref.read(ledgerProvider.notifier).syncSliceEmails();
-    if (mounted) {
-      setState(() => _isSyncing = false);
-      if (result.success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              result.newCount > 0
-                  ? 'Found ${result.newCount} new Slice transaction${result.newCount > 1 ? 's' : ''}!'
-                  : 'Up to date. No new Slice transactions found.',
-            ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.errorMessage ?? 'Sync failed'),
-            backgroundColor: Colors.red.shade800,
-          ),
-        );
+    try {
+      final s = ref.read(ledgerProvider).valueOrNull?.settings;
+      var smsCount = 0;
+      var emailCount = 0;
+      String? error;
+
+      if (s?.smsSyncEnabled == true) {
+        final smsRes = await ref.read(ledgerProvider.notifier).syncSms();
+        if (smsRes.success) {
+          smsCount = smsRes.newCount;
+        } else {
+          error = smsRes.errorMessage;
+        }
       }
+      if (s?.emailSyncEnabled == true) {
+        final emailRes = await ref.read(ledgerProvider.notifier).syncSliceEmails();
+        if (emailRes.success) {
+          emailCount = emailRes.newCount;
+        } else {
+          error = error ?? emailRes.errorMessage;
+        }
+      }
+
+      if (mounted) {
+        final total = smsCount + emailCount;
+        if (total > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Found $total new transaction${total > 1 ? 's' : ''}!'),
+            ),
+          );
+        } else if (error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(error),
+              backgroundColor: Colors.red.shade800,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Up to date. No new bank transactions found.'),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
     }
   }
 

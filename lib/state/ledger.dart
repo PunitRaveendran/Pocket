@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/dates.dart';
 import '../core/slice_email_sync.dart';
+import '../core/sms_sync_service.dart';
 import '../data/database.dart';
 import '../data/models.dart';
 import '../data/repository.dart';
@@ -19,22 +20,34 @@ final emailSyncServiceProvider = Provider<BankEmailSyncService>(
   (ref) => const BankEmailSyncService(),
 );
 
+final smsSyncServiceProvider = Provider<SmsSyncService>(
+  (ref) => const SmsSyncService(),
+);
+
 final ledgerProvider = AsyncNotifierProvider<LedgerNotifier, Ledger>(LedgerNotifier.new);
 
 class LedgerNotifier extends AsyncNotifier<Ledger> {
   PocketRepository get _repo => ref.read(repositoryProvider);
   BankEmailSyncService get _emailSyncService => ref.read(emailSyncServiceProvider);
+  SmsSyncService get _smsSyncService => ref.read(smsSyncServiceProvider);
   bool _isSyncingSlice = false;
   bool get isSyncingSlice => _isSyncingSlice;
+  bool _isSyncingSms = false;
+  bool get isSyncingSms => _isSyncingSms;
 
   @override
   Future<Ledger> build() async {
     final ledger = await _repo.load();
-    if (ledger.settings.emailSyncEnabled &&
-        ledger.settings.emailSyncAddress.isNotEmpty &&
-        ledger.settings.emailSyncAppPassword.isNotEmpty) {
-      Future.delayed(const Duration(milliseconds: 500), () => syncSliceEmails());
-    }
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (ledger.settings.smsSyncEnabled) {
+        syncSms();
+      }
+      if (ledger.settings.emailSyncEnabled &&
+          ledger.settings.emailSyncAddress.isNotEmpty &&
+          ledger.settings.emailSyncAppPassword.isNotEmpty) {
+        syncSliceEmails();
+      }
+    });
     return ledger;
   }
 
@@ -83,6 +96,7 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     String emailSyncAddress = '',
     String emailSyncAppPassword = '',
     String emailSyncSender = BankPresets.defaultSendersString,
+    bool smsSyncEnabled = false,
   }) async {
     await _repo.saveSettings(
       Settings(
@@ -94,11 +108,15 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
         emailSyncAddress: emailSyncAddress,
         emailSyncAppPassword: emailSyncAppPassword,
         emailSyncSender: emailSyncSender,
+        smsSyncEnabled: smsSyncEnabled,
       ),
     );
     await _reload();
+    if (smsSyncEnabled) {
+      Future.delayed(const Duration(milliseconds: 500), () => syncSms());
+    }
     if (emailSyncEnabled && emailSyncAddress.isNotEmpty && emailSyncAppPassword.isNotEmpty) {
-      Future.delayed(const Duration(milliseconds: 600), () => syncSliceEmails());
+      Future.delayed(const Duration(milliseconds: 800), () => syncSliceEmails());
     }
   }
 
@@ -372,6 +390,83 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
   }
 
   Future<BankSyncResult> syncBankEmails({bool force = false}) => syncSliceEmails(force: force);
+
+  Future<SmsSyncResult> syncSms({bool force = false}) async {
+    if (_isSyncingSms) {
+      return const SmsSyncResult(success: true, errorMessage: null);
+    }
+
+    var ledger = state.valueOrNull;
+    if (ledger == null) {
+      try {
+        ledger = await _repo.load();
+      } catch (e) {
+        return SmsSyncResult(success: false, errorMessage: 'Ledger not ready: $e');
+      }
+    }
+
+    final s = ledger.settings;
+    if (!force && !s.smsSyncEnabled) {
+      return const SmsSyncResult(success: false, errorMessage: 'SMS sync is disabled in Settings.');
+    }
+
+    _isSyncingSms = true;
+    try {
+      final hasPerm = await _smsSyncService.hasPermission();
+      if (!hasPerm) {
+        final granted = await _smsSyncService.requestPermission();
+        if (!granted) {
+          return const SmsSyncResult(
+            success: false,
+            errorMessage: 'SMS permission was not granted.',
+          );
+        }
+      }
+
+      final result = await _smsSyncService.syncSms(
+        isAlreadyProcessed: (msgId) => _repo.isEmailMessageProcessed(msgId),
+      );
+
+      if (result.success && result.transactions.isNotEmpty) {
+        final pendingList = result.transactions.map((p) {
+          return PendingTransaction(
+            id: '',
+            amountPaise: p.amountPaise,
+            direction: p.isDebit ? Direction.debit : Direction.credit,
+            occurredAtMs: p.occurredAt.millisecondsSinceEpoch,
+            localDate: p.localDate,
+            merchant: p.merchant,
+            rawSource: 'sms',
+            messageId: p.messageId,
+            status: InboxStatus.pending,
+          );
+        }).toList();
+
+        await _repo.addPendingTransactions(pendingList);
+      }
+
+      if (result.success) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        await _repo.saveSettings(s.copyWith(smsSyncLastSyncedMs: now));
+      }
+
+      await _reload();
+      return result;
+    } finally {
+      _isSyncingSms = false;
+    }
+  }
+
+  Future<void> syncAllBankTransactions() async {
+    final s = state.valueOrNull?.settings;
+    if (s == null) return;
+    if (s.smsSyncEnabled) {
+      await syncSms();
+    }
+    if (s.emailSyncEnabled) {
+      await syncSliceEmails();
+    }
+  }
 
   Future<SliceSyncResult> clearPendingAndResync() async {
     await _repo.clearPendingInbox();
