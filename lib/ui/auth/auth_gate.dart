@@ -39,7 +39,7 @@ class _AuthGateState extends ConsumerState<AuthGate> with WidgetsBindingObserver
       _pausedAt = DateTime.now();
     } else if (state == AppLifecycleState.resumed) {
       final paused = _pausedAt;
-      if (paused != null && DateTime.now().difference(paused).inSeconds > 60) {
+      if (paused != null && DateTime.now().difference(paused).inSeconds > 45) {
         final biometricEnabled = ref.read(ledgerProvider).valueOrNull?.settings.biometricEnabled ?? false;
         if (biometricEnabled && mounted) {
           setState(() => _unlocked = false);

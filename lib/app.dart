@@ -77,7 +77,9 @@ class PocketApp extends ConsumerWidget {
             backgroundColor: tokens.paper,
             body: Center(child: Text('$e')),
           ),
-          data: (data) => data.settings.onboarded ? const AuthGate(child: AppShell()) : const OnboardingScreen(),
+          data: (data) => data.settings.onboarded
+              ? const AuthGate(child: AppShell())
+              : const OnboardingScreen(),
         ),
       ),
     );
