@@ -14,10 +14,15 @@ final repositoryProvider = Provider<PocketRepository>(
   (ref) => PocketRepository(ref.watch(databaseProvider)),
 );
 
+final emailSyncServiceProvider = Provider<BankEmailSyncService>(
+  (ref) => const BankEmailSyncService(),
+);
+
 final ledgerProvider = AsyncNotifierProvider<LedgerNotifier, Ledger>(LedgerNotifier.new);
 
 class LedgerNotifier extends AsyncNotifier<Ledger> {
   PocketRepository get _repo => ref.read(repositoryProvider);
+  BankEmailSyncService get _emailSyncService => ref.read(emailSyncServiceProvider);
   bool _isSyncingSlice = false;
   bool get isSyncingSlice => _isSyncingSlice;
 
@@ -73,6 +78,10 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
   Future<void> completeOnboarding({
     required int stipendPaise,
     required int cycleStartDay,
+    bool emailSyncEnabled = false,
+    String emailSyncAddress = '',
+    String emailSyncAppPassword = '',
+    String emailSyncSender = BankPresets.defaultSendersString,
   }) async {
     await _repo.saveSettings(
       Settings(
@@ -80,9 +89,16 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
         cycleStartDay: cycleStartDay,
         hideAmounts: false,
         onboarded: true,
+        emailSyncEnabled: emailSyncEnabled,
+        emailSyncAddress: emailSyncAddress,
+        emailSyncAppPassword: emailSyncAppPassword,
+        emailSyncSender: emailSyncSender,
       ),
     );
     await _reload();
+    if (emailSyncEnabled && emailSyncAddress.isNotEmpty && emailSyncAppPassword.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 600), () => syncSliceEmails());
+    }
   }
 
   Future<void> updateSettings(Settings settings) async {
@@ -311,11 +327,10 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
 
     _isSyncingSlice = true;
     try {
-      const service = SliceEmailSyncService();
-      final result = await service.sync(
+      final result = await _emailSyncService.sync(
         email: s.emailSyncAddress,
         appPassword: s.emailSyncAppPassword,
-        sender: s.emailSyncSender.trim().isEmpty ? 'noreply@slice.bank.in' : s.emailSyncSender.trim(),
+        sender: s.emailSyncSender.trim().isEmpty ? BankPresets.defaultSendersString : s.emailSyncSender.trim(),
         isAlreadyProcessed: (msgId) => _repo.isEmailMessageProcessed(msgId),
       );
 
@@ -348,6 +363,8 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
       _isSyncingSlice = false;
     }
   }
+
+  Future<BankSyncResult> syncBankEmails({bool force = false}) => syncSliceEmails(force: force);
 
   Future<SliceSyncResult> clearPendingAndResync() async {
     await _repo.clearPendingInbox();
