@@ -506,18 +506,19 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
-  /// Non-blocking background worker to archive processed bank/Slice transaction emails in Gmail.
-  Future<void> archiveProcessedEmail(String? messageId) async {
+  /// Non-blocking background worker to organize and label processed bank/Slice transaction emails in Gmail.
+  Future<void> archiveProcessedEmail(String? messageId, {String label = 'Slice'}) async {
     if (messageId == null || messageId.trim().isEmpty) return;
     final s = state.valueOrNull?.settings;
     if (s == null || !s.emailSyncEnabled) return;
     if (s.emailSyncAddress.trim().isEmpty || s.emailSyncAppPassword.trim().isEmpty) return;
 
     try {
-      await _emailSyncService.archiveEmail(
+      await _emailSyncService.moveEmailToLabel(
         email: s.emailSyncAddress,
         appPassword: s.emailSyncAppPassword,
         messageId: messageId,
+        label: label,
       );
     } catch (_) {
       // Non-critical background task
