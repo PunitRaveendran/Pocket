@@ -17,7 +17,9 @@ import '../widgets/hairline.dart';
 enum GraphMode { daily, weekly, burnRate, category }
 
 class InsightsScreen extends ConsumerStatefulWidget {
-  const InsightsScreen({super.key});
+  const InsightsScreen({super.key, this.isEmbedded = false});
+
+  final bool isEmbedded;
 
   @override
   ConsumerState<InsightsScreen> createState() => _InsightsScreenState();
@@ -123,125 +125,134 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> with AutomaticK
         final paceDifference = idealPacePaise - ordinary;
         final isAheadOfPace = paceDifference >= 0;
 
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(Space.margin, Space.x4, Space.margin, Space.x12),
-          children: [
-            Text('This cycle', style: TypeScale.title(t.ink)),
+        final content = <Widget>[
+          Text('This cycle', style: TypeScale.title(t.ink)),
+          const SizedBox(height: Space.x2),
+          Text(
+            'Day $daysElapsed of ${cycle.lengthDays} · $daysRemaining ${daysRemaining == 1 ? 'day' : 'days'} left',
+            style: TypeScale.caption(t.inkSoft),
+          ),
+          if (rolloverPaise > 0) ...[
             const SizedBox(height: Space.x2),
-            Text(
-              'Day $daysElapsed of ${cycle.lengthDays} · $daysRemaining ${daysRemaining == 1 ? 'day' : 'days'} left',
-              style: TypeScale.caption(t.inkSoft),
-            ),
-            if (rolloverPaise > 0) ...[
-              const SizedBox(height: Space.x2),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: t.accentTint,
-                  borderRadius: BorderRadius.circular(Space.controlRadius),
-                ),
-                child: Text(
-                  'Includes ₹${rolloverPaise ~/ 100} savings rolled forward from last cycle',
-                  style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
-                ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: t.accentTint,
+                borderRadius: BorderRadius.circular(Space.controlRadius),
               ),
+              child: Text(
+                'Includes ₹${rolloverPaise ~/ 100} savings rolled forward from last cycle',
+                style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+          const SizedBox(height: Space.x2),
+
+          _Stat(label: 'Monthly stipend', value: Money.formatPaise(stipend, hide: hide)),
+          _Stat(label: 'Spent on ordinary days', value: Money.formatPaise(ordinary, hide: hide)),
+          _Stat(label: 'Spent on outings & trips', value: Money.formatPaise(extra, hide: hide)),
+          const Hairline(),
+          _Stat(
+            label: 'Total left the pocket',
+            value: Money.formatPaise(ordinary + extra, hide: hide),
+          ),
+          const SizedBox(height: Space.x3),
+          Text(
+            Copy.ordinaryVsExtra(
+              Money.formatPaise(ordinary, hide: hide),
+              Money.formatPaise(extra, hide: hide),
+              Money.formatPaise(stipend, hide: hide),
+            ),
+            style: TypeScale.caption(t.inkSoft),
+          ),
+
+          const SizedBox(height: Space.x8),
+
+          // Multi-Graph Interactive Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Visual Analytics', style: TypeScale.heading(t.ink)),
+              Text('Select View', style: TypeScale.caption(t.inkSoft)),
             ],
-            const SizedBox(height: Space.x2),
+          ),
+          const SizedBox(height: Space.x3),
 
-            _Stat(label: 'Monthly stipend', value: Money.formatPaise(stipend, hide: hide)),
-            _Stat(label: 'Spent on ordinary days', value: Money.formatPaise(ordinary, hide: hide)),
-            _Stat(label: 'Spent on outings & trips', value: Money.formatPaise(extra, hide: hide)),
-            const Hairline(),
-            _Stat(
-              label: 'Total left the pocket',
-              value: Money.formatPaise(ordinary + extra, hide: hide),
-            ),
-            const SizedBox(height: Space.x3),
-            Text(
-              Copy.ordinaryVsExtra(
-                Money.formatPaise(ordinary, hide: hide),
-                Money.formatPaise(extra, hide: hide),
-                Money.formatPaise(stipend, hide: hide),
-              ),
-              style: TypeScale.caption(t.inkSoft),
-            ),
-
-            const SizedBox(height: Space.x8),
-
-            // Multi-Graph Interactive Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // Segmented Graph Mode Selector Chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
               children: [
-                Text('Visual Analytics', style: TypeScale.heading(t.ink)),
-                Text('Select View', style: TypeScale.caption(t.inkSoft)),
+                LedgerChip(
+                  label: '7-Day Bars',
+                  selected: _selectedGraph == GraphMode.daily,
+                  onTap: () => setState(() => _selectedGraph = GraphMode.daily),
+                ),
+                const SizedBox(width: Space.x2),
+                LedgerChip(
+                  label: 'Weekly Trend',
+                  selected: _selectedGraph == GraphMode.weekly,
+                  onTap: () => setState(() => _selectedGraph = GraphMode.weekly),
+                ),
+                const SizedBox(width: Space.x2),
+                LedgerChip(
+                  label: 'Burn-Rate Pace',
+                  selected: _selectedGraph == GraphMode.burnRate,
+                  onTap: () => setState(() => _selectedGraph = GraphMode.burnRate),
+                ),
+                const SizedBox(width: Space.x2),
+                LedgerChip(
+                  label: 'Categories',
+                  selected: _selectedGraph == GraphMode.category,
+                  onTap: () => setState(() => _selectedGraph = GraphMode.category),
+                ),
               ],
             ),
+          ),
+          const SizedBox(height: Space.x4),
+
+          // Graph Display Container
+          _buildGraphContent(
+            t: t,
+            mode: _selectedGraph,
+            days: days,
+            weekBars: weekBars,
+            catRows: catRows,
+            totalCatSpent: totalCatSpent,
+            ledger: ledger,
+            hide: hide,
+            daysElapsed: daysElapsed,
+            totalDays: cycle.lengthDays,
+            stipend: stipend,
+            ordinary: ordinary,
+            idealPace: idealPacePaise,
+            paceDifference: paceDifference,
+            isAhead: isAheadOfPace,
+          ),
+
+          const SizedBox(height: Space.x8),
+
+          // Category summary always available at bottom
+          if (_selectedGraph != GraphMode.category) ...[
+            Text('By category', style: TypeScale.heading(t.ink)),
             const SizedBox(height: Space.x3),
-
-            // Segmented Graph Mode Selector Chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  LedgerChip(
-                    label: '7-Day Bars',
-                    selected: _selectedGraph == GraphMode.daily,
-                    onTap: () => setState(() => _selectedGraph = GraphMode.daily),
-                  ),
-                  const SizedBox(width: Space.x2),
-                  LedgerChip(
-                    label: 'Weekly Trend',
-                    selected: _selectedGraph == GraphMode.weekly,
-                    onTap: () => setState(() => _selectedGraph = GraphMode.weekly),
-                  ),
-                  const SizedBox(width: Space.x2),
-                  LedgerChip(
-                    label: 'Burn-Rate Pace',
-                    selected: _selectedGraph == GraphMode.burnRate,
-                    onTap: () => setState(() => _selectedGraph = GraphMode.burnRate),
-                  ),
-                  const SizedBox(width: Space.x2),
-                  LedgerChip(
-                    label: 'Categories',
-                    selected: _selectedGraph == GraphMode.category,
-                    onTap: () => setState(() => _selectedGraph = GraphMode.category),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: Space.x4),
-
-            // Graph Display Container
-            _buildGraphContent(
-              t: t,
-              mode: _selectedGraph,
-              days: days,
-              weekBars: weekBars,
-              catRows: catRows,
-              totalCatSpent: totalCatSpent,
-              ledger: ledger,
-              hide: hide,
-              daysElapsed: daysElapsed,
-              totalDays: cycle.lengthDays,
-              stipend: stipend,
-              ordinary: ordinary,
-              idealPace: idealPacePaise,
-              paceDifference: paceDifference,
-              isAhead: isAheadOfPace,
-            ),
-
-            const SizedBox(height: Space.x8),
-
-            // Category summary always available at bottom
-            if (_selectedGraph != GraphMode.category) ...[
-              Text('By category', style: TypeScale.heading(t.ink)),
-              const SizedBox(height: Space.x3),
-              if (catRows.isEmpty)
-                Text('No ordinary spends recorded this cycle.', style: TypeScale.body(t.inkSoft))
-              else
-                _buildCategoryList(t, catRows, totalCatSpent, ledger, hide),
-            ],
+            if (catRows.isEmpty)
+              Text('No ordinary spends recorded this cycle.', style: TypeScale.body(t.inkSoft))
+            else
+              _buildCategoryList(t, catRows, totalCatSpent, ledger, hide),
           ],
+        ];
+
+        if (widget.isEmbedded) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: content,
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(Space.margin, Space.x4, Space.margin, Space.x12),
+          children: content,
         );
       },
     );

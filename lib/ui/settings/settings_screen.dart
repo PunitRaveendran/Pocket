@@ -17,6 +17,7 @@ import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
 import '../sheets/adjust_balance_sheet.dart';
+import '../insights/insights_screen.dart';
 import '../sheets/receipt_sheet.dart';
 import '../widgets/amount_pad.dart';
 import '../widgets/app_password_guide_sheet.dart';
@@ -27,7 +28,9 @@ import '../widgets/hairline.dart';
 import '../widgets/primary_button.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.isTab = false});
+
+  final bool isTab;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -183,13 +186,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (ledger == null) return const SizedBox.shrink();
     final s = ledger.settings;
 
-    return Scaffold(
-      backgroundColor: t.paper,
-      appBar: AppBar(title: const Text(Copy.settings)),
-      body: ListView(
-        children: [
-          // Section 1: Budget & Allowance
-          _sectionHeader(t, 'BUDGET & PACING'),
+    final listContent = ListView(
+      children: [
+        // Section 0: Insights & Visual Analytics
+        _sectionHeader(t, 'THIS CYCLE & INSIGHTS'),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(Space.margin, Space.x2, Space.margin, Space.x6),
+          child: InsightsScreen(isEmbedded: true),
+        ),
+        const Hairline(),
+
+        // Section 1: Budget & Allowance
+        _sectionHeader(t, 'BUDGET & PACING'),
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
             title: Text(Copy.monthlyStipend, style: TypeScale.body(t.ink)),
@@ -736,7 +744,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: Space.x12),
         ],
-      ),
+      );
+
+    if (widget.isTab) {
+      return Material(
+        color: t.paper,
+        child: listContent,
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: t.paper,
+      appBar: AppBar(title: const Text(Copy.settings)),
+      body: listContent,
     );
   }
 

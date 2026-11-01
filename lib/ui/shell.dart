@@ -5,8 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/copy.dart';
 import '../state/ledger.dart';
 import '../theme/app_theme.dart';
-import '../theme/tokens.dart';
-import 'insights/insights_screen.dart';
 import 'outings/outings_screen.dart';
 import 'settings/settings_screen.dart';
 import 'sheets/pending_inbox_sheet.dart';
@@ -26,7 +24,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   DateTime? _lastSyncAttempt;
   late final PageController _pageController;
 
-  static const _titles = [Copy.today, Copy.splits, Copy.outings, Copy.insights];
+  static const _titles = [Copy.today, Copy.splits, Copy.outings, Copy.settings];
 
   @override
   void initState() {
@@ -133,21 +131,20 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
                 ),
               ),
             ),
-          IconButton(
-            tooltip: Copy.settings,
-            onPressed: () {
-              Navigator.of(context).push(
-                PageRouteBuilder(
-                  pageBuilder: (context, _, _) => const SettingsScreen(),
-                  transitionsBuilder: (context, anim, _, child) {
-                    return FadeTransition(opacity: anim, child: child);
-                  },
-                  transitionDuration: Motion.normal,
-                ),
-              );
-            },
-            icon: Icon(Icons.tune, color: t.inkSoft, size: 22),
-          ),
+          if (_index != 3)
+            IconButton(
+              tooltip: Copy.settings,
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                setState(() => _index = 3);
+                _pageController.animateToPage(
+                  3,
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOutCubic,
+                );
+              },
+              icon: Icon(Icons.tune, color: t.inkSoft, size: 22),
+            ),
         ],
       ),
       body: PageView(
@@ -161,7 +158,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
           TodayScreen(),
           SplitsScreen(),
           OutingsScreen(),
-          InsightsScreen(),
+          SettingsScreen(isTab: true),
         ],
       ),
       bottomNavigationBar: Container(
@@ -204,9 +201,9 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
                     label: Copy.outings,
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.bar_chart_outlined, color: t.inkSoft),
-                    selectedIcon: Icon(Icons.bar_chart_outlined, color: t.accent),
-                    label: Copy.insights,
+                    icon: Icon(Icons.tune_outlined, color: t.inkSoft),
+                    selectedIcon: Icon(Icons.tune_outlined, color: t.accent),
+                    label: Copy.settings,
                   ),
                 ],
               ),

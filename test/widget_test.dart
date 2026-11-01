@@ -530,7 +530,7 @@ void main() {
     expect(find.text('Split with friends'), findsOneWidget);
   });
 
-  testWidgets('AppShell renders all 4 tabs including restored Splits tab and navigates correctly', (tester) async {
+  testWidgets('AppShell renders all 4 tabs including Settings tab and navigates correctly', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;
     addTearDown(() {
@@ -545,7 +545,7 @@ void main() {
     expect(find.text('Today'), findsWidgets);
     expect(find.text('Splits'), findsWidgets);
     expect(find.text('Outings'), findsWidgets);
-    expect(find.text('Insights'), findsWidgets);
+    expect(find.text('Settings'), findsWidgets);
 
     // Tap on Splits tab
     await tester.tap(find.text('Splits'));
@@ -554,6 +554,15 @@ void main() {
     // Verify Splits screen content is now shown
     expect(find.text('Overall: You get back'), findsOneWidget);
     expect(find.text('Add Split'), findsOneWidget);
+
+    // Tap on Settings tab
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    // Verify Settings tab shows both the embedded Insights section on top and budget settings
+    expect(find.text('THIS CYCLE & INSIGHTS'), findsOneWidget);
+    expect(find.text('Visual Analytics'), findsOneWidget);
+    expect(find.text('BUDGET & PACING'), findsOneWidget);
   });
 
   testWidgets('AppShell allows sliding horizontally to navigate between tabs', (tester) async {
