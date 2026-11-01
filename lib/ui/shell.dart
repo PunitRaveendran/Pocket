@@ -56,19 +56,22 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
     final ledger = ref.read(ledgerProvider).valueOrNull;
     if (ledger == null) return;
     final s = ledger.settings;
-    if (!s.emailSyncEnabled ||
-        s.emailSyncAddress.trim().isEmpty ||
-        s.emailSyncAppPassword.trim().isEmpty) {
+    final hasEmail = s.emailSyncEnabled &&
+        s.emailSyncAddress.trim().isNotEmpty &&
+        s.emailSyncAppPassword.trim().isNotEmpty;
+    final hasSms = s.smsSyncEnabled;
+
+    if (!hasEmail && !hasSms) {
       return;
     }
 
     final now = DateTime.now();
-    // Throttle auto-sync to once every 45 seconds when returning from background
-    if (!force && _lastSyncAttempt != null && now.difference(_lastSyncAttempt!).inSeconds < 45) {
+    // Throttle auto-sync to once every 30 seconds when returning from background
+    if (!force && _lastSyncAttempt != null && now.difference(_lastSyncAttempt!).inSeconds < 30) {
       return;
     }
     _lastSyncAttempt = now;
-    ref.read(ledgerProvider.notifier).syncSliceEmails();
+    ref.read(ledgerProvider.notifier).syncAllBankTransactions();
   }
 
   @override

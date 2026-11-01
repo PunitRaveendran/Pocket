@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pocket/core/slice_email_sync.dart';
+import 'package:pocket/core/sms_sync_service.dart';
 import 'package:pocket/data/database.dart';
 import 'package:pocket/data/repository.dart';
 import 'package:pocket/state/ledger.dart';
@@ -23,12 +24,31 @@ class FakeBankEmailSyncService extends BankEmailSyncService {
   }
 }
 
+class FakeSmsSyncService extends SmsSyncService {
+  const FakeSmsSyncService();
+
+  @override
+  Future<bool> hasPermission() async => true;
+
+  @override
+  Future<bool> requestPermission() async => true;
+
+  @override
+  Future<SmsSyncResult> syncSms({
+    int days = 14,
+    required Future<bool> Function(String messageId) isAlreadyProcessed,
+  }) async {
+    return const SmsSyncResult(success: true, newCount: 0);
+  }
+}
+
 void main() {
   Widget createOnboardingWidget({required PocketRepository repo}) {
     return ProviderScope(
       overrides: [
         repositoryProvider.overrideWithValue(repo),
         emailSyncServiceProvider.overrideWithValue(const FakeBankEmailSyncService()),
+        smsSyncServiceProvider.overrideWithValue(const FakeSmsSyncService()),
       ],
       child: TokenScope(
         tokens: PaperTokens.dark,
@@ -46,7 +66,7 @@ void main() {
       inMemoryRepo = PocketRepository(PocketDatabase.instance, inMemory: true);
     });
 
-    testWidgets('Completes onboarding by skipping email sync', (tester) async {
+    testWidgets('Completes onboarding by turning off SMS sync and skipping', (tester) async {
       await tester.pumpWidget(createOnboardingWidget(repo: inMemoryRepo));
       await tester.pumpAndSettle();
 
@@ -62,9 +82,16 @@ void main() {
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
-      // Step 2: Auto-detect bank spends? (Optional Email Setup)
-      expect(find.text('Auto-detect bank spends?'), findsOneWidget);
-      expect(find.text('Connect Bank Email'), findsOneWidget);
+      // Step 2: Auto-detect bank & UPI spends?
+      expect(find.text('Auto-detect bank & UPI spends?'), findsOneWidget);
+      expect(find.text('Direct SMS Auto-Sync'), findsOneWidget);
+      expect(find.text('Bank Email Auto-Sync'), findsOneWidget);
+
+      // Turn off SMS sync switch (index 0)
+      await tester.tap(find.byType(Switch).first);
+      await tester.pumpAndSettle();
+
+      // Since both SMS and Email are off, button shows 'Skip for now'
       expect(find.text('Skip for now'), findsOneWidget);
 
       // Tap Skip for now
@@ -81,6 +108,36 @@ void main() {
 
       final ledger = await inMemoryRepo.load();
       expect(ledger.settings.onboarded, isTrue);
+      expect(ledger.settings.smsSyncEnabled, isFalse);
+      expect(ledger.settings.emailSyncEnabled, isFalse);
+    });
+
+    testWidgets('Completes onboarding with Direct SMS Auto-Sync enabled', (tester) async {
+      await tester.pumpWidget(createOnboardingWidget(repo: inMemoryRepo));
+      await tester.pumpAndSettle();
+
+      // Step 0 -> Step 1 -> Step 2
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      // Step 2: SMS sync is enabled by default
+      expect(find.text('Direct SMS Auto-Sync'), findsOneWidget);
+      expect(find.text('Next'), findsOneWidget);
+
+      // Tap Next to proceed with SMS sync enabled
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+
+      // Step 3: Outings explanation
+      expect(find.text('Days and nights out stay apart.'), findsOneWidget);
+      await tester.tap(find.text('Open the ledger'));
+      await tester.pumpAndSettle();
+
+      final ledger = await inMemoryRepo.load();
+      expect(ledger.settings.onboarded, isTrue);
+      expect(ledger.settings.smsSyncEnabled, isTrue);
       expect(ledger.settings.emailSyncEnabled, isFalse);
     });
 
@@ -94,11 +151,11 @@ void main() {
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
-      // Step 2: Auto-detect bank spends?
-      expect(find.text('Auto-detect bank spends?'), findsOneWidget);
+      // Step 2: Auto-detect bank & UPI spends?
+      expect(find.text('Auto-detect bank & UPI spends?'), findsOneWidget);
 
-      // Toggle switch ON
-      await tester.tap(find.byType(Switch));
+      // Toggle Email switch ON (switch at index 1)
+      await tester.tap(find.byType(Switch).at(1));
       await tester.pumpAndSettle();
 
       // Verify fields appear
@@ -111,7 +168,7 @@ void main() {
 
       // Enter email and password
       final textFields = find.byType(TextField);
-      expect(textFields, findsNWidgets(2));
+      expect(textFields, findsNWidgets(3)); // email, password, and sender textfield
       await tester.enterText(textFields.at(0), 'student@gmail.com');
       await tester.enterText(textFields.at(1), 'abcd efgh ijkl mnop');
       await tester.pumpAndSettle();
@@ -145,8 +202,14 @@ void main() {
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
+      // Toggle Email switch ON (switch at index 1)
+      await tester.tap(find.byType(Switch).at(1));
+      await tester.pumpAndSettle();
+
       // Find and tap "How to create?"
       expect(find.text('How to create?'), findsOneWidget);
+      await tester.ensureVisible(find.text('How to create?'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('How to create?'));
       await tester.pumpAndSettle();
 
