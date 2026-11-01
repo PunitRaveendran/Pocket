@@ -115,6 +115,71 @@ class PaperTokens {
     overTint: Color(0xFF2E0D0D),
     caution: Color(0xFFFFD600),
   );
+
+  static const cyberpunk = PaperTokens(
+    paper: Color(0xFF0A0814),
+    card: Color(0xFF151226),
+    rule: Color(0xFF2A2345),
+    ink: Color(0xFFF3F0FF),
+    inkSoft: Color(0xFF9D94B8),
+    accent: Color(0xFF00F5D4),
+    accentTint: Color(0xFF003830),
+    over: Color(0xFFFF007F),
+    overTint: Color(0xFF3A001C),
+    caution: Color(0xFFFFBE0B),
+  );
+
+  static const dune = PaperTokens(
+    paper: Color(0xFFF7F3EB),
+    card: Color(0xFFFFFFFF),
+    rule: Color(0xFFE6DEC9),
+    ink: Color(0xFF2B2118),
+    inkSoft: Color(0xFF736152),
+    accent: Color(0xFFC85A32),
+    accentTint: Color(0xFFF8EBE5),
+    over: Color(0xFFB93826),
+    overTint: Color(0xFFFBECE9),
+    caution: Color(0xFFC68A1B),
+  );
+
+  static const pine = PaperTokens(
+    paper: Color(0xFF0A130F),
+    card: Color(0xFF131F19),
+    rule: Color(0xFF23362C),
+    ink: Color(0xFFECFDF5),
+    inkSoft: Color(0xFF829E91),
+    accent: Color(0xFF34D399),
+    accentTint: Color(0xFF0F3928),
+    over: Color(0xFFF87171),
+    overTint: Color(0xFF381A1A),
+    caution: Color(0xFFFBBF24),
+  );
+
+  static const lavender = PaperTokens(
+    paper: Color(0xFFF8F6FC),
+    card: Color(0xFFFFFFFF),
+    rule: Color(0xFFE7E1F2),
+    ink: Color(0xFF1F1A2C),
+    inkSoft: Color(0xFF685C82),
+    accent: Color(0xFF7C3AED),
+    accentTint: Color(0xFFF0EAFE),
+    over: Color(0xFFBE185D),
+    overTint: Color(0xFFFCE7F3),
+    caution: Color(0xFFB45309),
+  );
+
+  static const amber = PaperTokens(
+    paper: Color(0xFF111113),
+    card: Color(0xFF1C1C20),
+    rule: Color(0xFF2E2E36),
+    ink: Color(0xFFFDFBF7),
+    inkSoft: Color(0xFF9E9EA8),
+    accent: Color(0xFFF59E0B),
+    accentTint: Color(0xFF382300),
+    over: Color(0xFFEF4444),
+    overTint: Color(0xFF3B1212),
+    caution: Color(0xFFFBBF24),
+  );
 }
 
 class Space {

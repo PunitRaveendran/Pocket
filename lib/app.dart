@@ -51,6 +51,26 @@ class PocketApp extends ConsumerWidget {
         tokens = PaperTokens.oled;
         activeBrightness = Brightness.dark;
         themeMode = ThemeMode.dark;
+      case AppThemeMode.cyberpunk:
+        tokens = PaperTokens.cyberpunk;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.dune:
+        tokens = PaperTokens.dune;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.pine:
+        tokens = PaperTokens.pine;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.lavender:
+        tokens = PaperTokens.lavender;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.amber:
+        tokens = PaperTokens.amber;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
       case AppThemeMode.system:
         activeBrightness = systemBrightness;
         tokens = activeBrightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;

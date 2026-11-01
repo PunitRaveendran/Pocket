@@ -325,30 +325,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     AppThemeMode.nordic => 'Nordic Slate (deep navy & frost blue)',
                     AppThemeMode.sakura => 'Sakura Blossom (soft blush & rose)',
                     AppThemeMode.oled => 'Midnight OLED (pure black battery saver)',
+                    AppThemeMode.cyberpunk => 'Cyber Neon (obsidian & electric cyan)',
+                    AppThemeMode.dune => 'Sahara Sand (terracotta & warm linen)',
+                    AppThemeMode.pine => 'Alpine Pine (deep spruce & emerald)',
+                    AppThemeMode.lavender => 'Twilight Lilac (pale wisteria & royal iris)',
+                    AppThemeMode.amber => 'Retro Amber (graphite & warm phosphor)',
                   },
                   style: TypeScale.caption(t.inkSoft),
                 ),
-                trailing: DropdownButton<AppThemeMode>(
-                  value: s.appThemeMode,
-                  underline: const SizedBox.shrink(),
-                  dropdownColor: t.card,
-                  style: TypeScale.body(t.accent),
-                  onChanged: (mode) {
-                    if (mode != null) {
-                      ref.read(ledgerProvider.notifier).setThemeMode(mode);
-                    }
-                  },
-                  items: const [
-                    DropdownMenuItem(value: AppThemeMode.system, child: Text('System')),
-                    DropdownMenuItem(value: AppThemeMode.light, child: Text('Paper (Light)')),
-                    DropdownMenuItem(value: AppThemeMode.dark, child: Text('Charcoal (Dark)')),
-                    DropdownMenuItem(value: AppThemeMode.matcha, child: Text('Matcha Zen')),
-                    DropdownMenuItem(value: AppThemeMode.espresso, child: Text('Café Espresso')),
-                    DropdownMenuItem(value: AppThemeMode.nordic, child: Text('Nordic Slate')),
-                    DropdownMenuItem(value: AppThemeMode.sakura, child: Text('Sakura Rose')),
-                    DropdownMenuItem(value: AppThemeMode.oled, child: Text('OLED Black')),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      switch (s.appThemeMode) {
+                        AppThemeMode.system => 'System',
+                        AppThemeMode.light => 'Paper',
+                        AppThemeMode.dark => 'Charcoal',
+                        AppThemeMode.matcha => 'Matcha',
+                        AppThemeMode.espresso => 'Espresso',
+                        AppThemeMode.nordic => 'Nordic',
+                        AppThemeMode.sakura => 'Sakura',
+                        AppThemeMode.oled => 'OLED',
+                        AppThemeMode.cyberpunk => 'Cyber Neon',
+                        AppThemeMode.dune => 'Sahara',
+                        AppThemeMode.pine => 'Pine',
+                        AppThemeMode.lavender => 'Lilac',
+                        AppThemeMode.amber => 'Amber',
+                      },
+                      style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(width: Space.x1),
+                    Icon(Icons.palette_outlined, size: 18, color: t.accent),
                   ],
                 ),
+                onTap: () => _showThemePickerSheet(context, ref, s.appThemeMode, t),
               ),
               const Hairline(indent: Space.margin + 32),
               SwitchListTile(
@@ -811,6 +821,183 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       backgroundColor: t.paper,
       appBar: AppBar(title: const Text(Copy.settings)),
       body: listContent,
+    );
+  }
+
+  void _showThemePickerSheet(
+    BuildContext context,
+    WidgetRef ref,
+    AppThemeMode currentMode,
+    PaperTokens t,
+  ) {
+    final themes = [
+      (
+        AppThemeMode.system,
+        'System Default',
+        'Matches Android system dark/light mode',
+        [Colors.grey.shade300, Colors.grey.shade700, Colors.blueGrey, Colors.teal],
+      ),
+      (
+        AppThemeMode.light,
+        'Paper (Light)',
+        'Warm editorial newsprint & forest green',
+        [PaperTokens.light.paper, PaperTokens.light.card, PaperTokens.light.rule, PaperTokens.light.accent],
+      ),
+      (
+        AppThemeMode.dark,
+        'Charcoal (Dark)',
+        'Editorial charcoal & soft sage mint',
+        [PaperTokens.dark.paper, PaperTokens.dark.card, PaperTokens.dark.rule, PaperTokens.dark.accent],
+      ),
+      (
+        AppThemeMode.oled,
+        'Midnight OLED',
+        'Pure AMOLED black with vibrant neon mint',
+        [PaperTokens.oled.paper, PaperTokens.oled.card, PaperTokens.oled.rule, PaperTokens.oled.accent],
+      ),
+      (
+        AppThemeMode.cyberpunk,
+        'Cyber Neon',
+        'Obsidian night with electric cyan & magenta',
+        [PaperTokens.cyberpunk.paper, PaperTokens.cyberpunk.card, PaperTokens.cyberpunk.rule, PaperTokens.cyberpunk.accent],
+      ),
+      (
+        AppThemeMode.dune,
+        'Sahara Sand',
+        'Sunbaked linen paper & Moroccan terracotta',
+        [PaperTokens.dune.paper, PaperTokens.dune.card, PaperTokens.dune.rule, PaperTokens.dune.accent],
+      ),
+      (
+        AppThemeMode.pine,
+        'Alpine Pine',
+        'Mystical deep spruce & emerald glow',
+        [PaperTokens.pine.paper, PaperTokens.pine.card, PaperTokens.pine.rule, PaperTokens.pine.accent],
+      ),
+      (
+        AppThemeMode.lavender,
+        'Twilight Lilac',
+        'French wisteria silk & royal iris purple',
+        [PaperTokens.lavender.paper, PaperTokens.lavender.card, PaperTokens.lavender.rule, PaperTokens.lavender.accent],
+      ),
+      (
+        AppThemeMode.amber,
+        'Retro Amber',
+        'Basalt CRT slate & golden phosphor amber',
+        [PaperTokens.amber.paper, PaperTokens.amber.card, PaperTokens.amber.rule, PaperTokens.amber.accent],
+      ),
+      (
+        AppThemeMode.matcha,
+        'Matcha Zen',
+        'Calming tea paper with bamboo green',
+        [PaperTokens.matcha.paper, PaperTokens.matcha.card, PaperTokens.matcha.rule, PaperTokens.matcha.accent],
+      ),
+      (
+        AppThemeMode.espresso,
+        'Café Espresso',
+        'Warm roasted mocha & caramel cream',
+        [PaperTokens.espresso.paper, PaperTokens.espresso.card, PaperTokens.espresso.rule, PaperTokens.espresso.accent],
+      ),
+      (
+        AppThemeMode.nordic,
+        'Nordic Slate',
+        'Deep Atlantic navy & arctic frost blue',
+        [PaperTokens.nordic.paper, PaperTokens.nordic.card, PaperTokens.nordic.rule, PaperTokens.nordic.accent],
+      ),
+      (
+        AppThemeMode.sakura,
+        'Sakura Rose',
+        'Soft Japanese blush & rose blossom',
+        [PaperTokens.sakura.paper, PaperTokens.sakura.card, PaperTokens.sakura.rule, PaperTokens.sakura.accent],
+      ),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: t.paper,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(top: Space.x4, bottom: Space.x4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: t.rule,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: Space.x3),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Choose Theme', style: TypeScale.heading(t.ink)),
+                      Text('${themes.length} Styles', style: TypeScale.caption(t.inkSoft)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: Space.x2),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: themes.length,
+                    separatorBuilder: (_, _) => Hairline(indent: Space.margin),
+                    itemBuilder: (ctx, i) {
+                      final item = themes[i];
+                      final isSelected = item.$1 == currentMode;
+                      return ListTile(
+                        leading: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (final c in item.$4)
+                              Container(
+                                width: 14,
+                                height: 14,
+                                margin: const EdgeInsets.only(right: 3),
+                                decoration: BoxDecoration(
+                                  color: c,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: t.rule, width: 0.8),
+                                ),
+                              ),
+                          ],
+                        ),
+                        title: Text(
+                          item.$2,
+                          style: TypeScale.body(t.ink).copyWith(
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                        subtitle: Text(item.$3, style: TypeScale.caption(t.inkSoft)),
+                        trailing: isSelected
+                            ? Icon(Icons.check_circle_rounded, color: t.accent, size: 22)
+                            : null,
+                        onTap: () {
+                          ref.read(ledgerProvider.notifier).setThemeMode(item.$1);
+                          Navigator.pop(ctx);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

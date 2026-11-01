@@ -247,6 +247,11 @@ enum AppThemeMode {
   nordic,
   sakura,
   oled,
+  cyberpunk,
+  dune,
+  pine,
+  lavender,
+  amber,
 }
 
 class FixedDeduction {
