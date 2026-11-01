@@ -520,13 +520,28 @@ class _Group {
 
 List<_Group> _allGroups(Ledger ledger) {
   final result = <_Group>[];
+  final groupedTxnIds = <String>{};
+
   for (final o in ledger.outings) {
     final txns = ledger.transactions
         .where((t) => t.bucket == Bucket.outing && t.outingId == o.id)
         .toList();
-    if (txns.isEmpty) continue;
+    groupedTxnIds.addAll(txns.map((t) => t.id));
     result.add(_Group(id: o.id, title: o.title, date: o.localDate, txns: txns));
   }
+
+  final orphaned = ledger.transactions
+      .where((t) => t.bucket == Bucket.outing && !groupedTxnIds.contains(t.id))
+      .toList();
+  if (orphaned.isNotEmpty) {
+    result.add(_Group(
+      id: 'general_outings',
+      title: 'General Outings & Social',
+      date: orphaned.first.localDate,
+      txns: orphaned,
+    ));
+  }
+
   result.sort((a, b) => b.date.ymd.compareTo(a.date.ymd));
   return result;
 }

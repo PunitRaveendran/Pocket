@@ -198,6 +198,48 @@ void main() {
     expect(current.rupeeDigits, '80');
   });
 
+  testWidgets('AmountPad clearOnFirstDigit replaces prefilled value instead of appending', (tester) async {
+    var current = const AmountValue(rupeeDigits: '1000', paise: 0);
+    var isFirst = true;
+
+    await tester.pumpWidget(
+      TokenScope(
+        tokens: PaperTokens.light,
+        child: MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                return AmountPad(
+                  value: current,
+                  clearOnFirstDigit: isFirst,
+                  onFirstDigitCleared: () => setState(() => isFirst = false),
+                  onChanged: (val) => setState(() => current = val),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Tap '5'
+    await tester.tap(find.text('5'));
+    await tester.pump();
+    // Replaced 1000 with 5, NOT 10005!
+    expect(current.rupeeDigits, '5');
+    expect(isFirst, false);
+
+    // Tap '0'
+    await tester.tap(find.text('0'));
+    await tester.pump();
+    expect(current.rupeeDigits, '50');
+
+    // Tap '0'
+    await tester.tap(find.text('0'));
+    await tester.pump();
+    expect(current.rupeeDigits, '500');
+  });
+
   testWidgets('TodayScreen renders allowance, category tabs, and transaction rows', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;

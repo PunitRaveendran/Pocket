@@ -714,6 +714,13 @@ int rolloverSavingsFromPreviousCycle(Ledger ledger, PayCycle currentCycle) {
 /// The effective stipend for [cycle], incorporating unspent rollover from the prior cycle
 /// if [Settings.rolloverUnspent] is active, plus any extra stipend top-ups added in this cycle.
 int effectiveStipendForCycle(Ledger ledger, PayCycle cycle, {bool checkPrior = true}) {
+  final cycleKey = cycle.start.ymd;
+  if (ledger.settings.cycleAdjustments.containsKey(cycleKey)) {
+    final adjusted = ledger.settings.cycleAdjustments[cycleKey]!;
+    final topUps = extraTopUpForCycle(ledger, cycle);
+    return adjusted + topUps;
+  }
+
   final base = ledger.settings.effectiveStipendPaise;
   final topUps = extraTopUpForCycle(ledger, cycle);
   if (!ledger.settings.rolloverUnspent || !checkPrior) return base + topUps;

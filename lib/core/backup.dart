@@ -22,6 +22,7 @@ class BackupService {
         'biometric_enabled': s.biometricEnabled,
         'app_theme_mode': s.appThemeMode.name,
         'rollover_unspent': s.rolloverUnspent,
+        'cycle_adjustments': s.cycleAdjustments,
       },
       'categories': [
         for (final c in ledger.categories)
@@ -111,6 +112,10 @@ class BackupService {
             ? AppThemeMode.dark
             : (sMap['app_theme_mode'] == 'light' ? AppThemeMode.light : AppThemeMode.system),
         rolloverUnspent: sMap['rollover_unspent'] as bool? ?? true,
+        cycleAdjustments: sMap['cycle_adjustments'] is Map
+            ? (sMap['cycle_adjustments'] as Map)
+                .map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
+            : const {},
       );
 
       // 2. Pre-validate and construct Custom Categories and sort orders

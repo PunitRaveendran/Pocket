@@ -644,6 +644,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _editStipend(BuildContext context, WidgetRef ref, int current) async {
     var value = AmountValue.fromPaise(current);
+    var isFirstDigit = true;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -679,14 +680,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 color: value.paiseTotal == r * 100 ? t.accent : t.rule,
                               ),
                               onPressed: () {
-                                setSt(() => value = AmountValue.fromPaise(r * 100));
+                                setSt(() {
+                                  value = AmountValue.fromPaise(r * 100);
+                                  isFirstDigit = true;
+                                });
                               },
                             ),
                           ),
                       ],
                     ),
                     const SizedBox(height: Space.x4),
-                    AmountPad(value: value, onChanged: (v) => setSt(() => value = v)),
+                    AmountPad(
+                      value: value,
+                      clearOnFirstDigit: isFirstDigit,
+                      onFirstDigitCleared: () => setSt(() => isFirstDigit = false),
+                      onChanged: (v) => setSt(() => value = v),
+                    ),
                     const SizedBox(height: Space.x4),
                     PrimaryButton(
                       label: Copy.save,
@@ -694,7 +703,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         final ledger = ref.read(ledgerProvider).valueOrNull;
                         if (ledger == null) return;
                         await ref.read(ledgerProvider.notifier).updateSettings(
-                              ledger.settings.copyWith(stipendPaise: value.paiseTotal),
+                              ledger.settings.copyWith(
+                                stipendPaise: value.paiseTotal,
+                              ),
                             );
                         if (ctx.mounted) Navigator.pop(ctx);
                       },

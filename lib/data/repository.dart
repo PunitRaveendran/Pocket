@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
@@ -189,6 +190,14 @@ class PocketRepository {
       appPassword = map['email_sync_app_password']!;
     }
 
+    Map<String, int> cycleAdjustments = {};
+    if (map['cycle_adjustments'] != null && map['cycle_adjustments']!.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(map['cycle_adjustments']!) as Map<String, dynamic>;
+        cycleAdjustments = decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+      } catch (_) {}
+    }
+
     final settings = Settings(
       stipendPaise: int.parse(map['stipend_paise'] ?? '${Settings.defaults.stipendPaise}'),
       cycleStartDay: int.parse(map['cycle_start_day'] ?? '${Settings.defaults.cycleStartDay}'),
@@ -204,6 +213,7 @@ class PocketRepository {
           ? AppThemeMode.dark
           : (map['app_theme_mode'] == 'light' ? AppThemeMode.light : AppThemeMode.system),
       rolloverUnspent: map['rollover_unspent'] != '0',
+      cycleAdjustments: cycleAdjustments,
       emailSyncAddress: map['email_sync_address'] ?? '',
       emailSyncAppPassword: appPassword,
       emailSyncSender: map['email_sync_sender'] ?? 'noreply@slice.bank.in',
@@ -271,6 +281,7 @@ class PocketRepository {
     await put('biometric_enabled', s.biometricEnabled ? '1' : '0');
     await put('app_theme_mode', s.appThemeMode.name);
     await put('rollover_unspent', s.rolloverUnspent ? '1' : '0');
+    await put('cycle_adjustments', jsonEncode(s.cycleAdjustments));
     await put('email_sync_address', s.emailSyncAddress);
     if (s.emailSyncAppPassword.isNotEmpty) {
       final encrypted = await KeystoreService.instance.encrypt(s.emailSyncAppPassword);
@@ -1049,6 +1060,9 @@ class PocketRepository {
         await put('biometric_enabled', settings.biometricEnabled ? '1' : '0');
         await put('app_theme_mode', settings.appThemeMode.name);
         await put('rollover_unspent', settings.rolloverUnspent ? '1' : '0');
+        if (settings.cycleAdjustments.isNotEmpty) {
+          await put('cycle_adjustments', jsonEncode(settings.cycleAdjustments));
+        }
 
         // 4. Re-insert custom categories
         for (final c in customCategories) {

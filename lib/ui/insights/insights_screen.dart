@@ -45,7 +45,8 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> with AutomaticK
         final ordinary = ordinaryThisCycle(ledger, cycle);
         final extra = extraThisCycle(ledger, cycle);
         final stipend = effectiveStipendForCycle(ledger, cycle);
-        final rolloverPaise = rolloverSavingsFromPreviousCycle(ledger, cycle);
+        final hasCycleOverride = ledger.settings.cycleAdjustments.containsKey(cycle.start.ymd);
+        final rolloverPaise = hasCycleOverride ? 0 : rolloverSavingsFromPreviousCycle(ledger, cycle);
         final engine = const BudgetEngine();
 
         final daysElapsed = today.dateTime.difference(cycle.start.dateTime).inDays + 1;

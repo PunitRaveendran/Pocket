@@ -771,9 +771,15 @@ void main() {
 
       // User directly updates their monthly balance to ₹1,000 (targetPaise = 100000)
       const targetPaise = 100000;
+      final cycleKey = cycle.start.ymd;
+      final newAdjustments = Map<String, int>.from(initialLedger.settings.cycleAdjustments);
+      newAdjustments[cycleKey] = targetPaise + ordinaryThisCycle(initialLedger, cycle);
 
       final adjustedLedger = Ledger(
-        settings: initialLedger.settings.copyWith(stipendPaise: targetPaise),
+        settings: initialLedger.settings.copyWith(
+          stipendPaise: targetPaise,
+          cycleAdjustments: newAdjustments,
+        ),
         categories: initialLedger.categories,
         transactions: initialLedger.transactions, // ZERO new transactions added!
         outings: initialLedger.outings,
@@ -781,10 +787,81 @@ void main() {
 
       // Monthly stipend is directly set to ₹1,000 (NOT reduced to 60 or distorted)
       expect(adjustedLedger.settings.stipendPaise, 100000);
+      // Effective stipend incorporates the cycle adjustment
+      expect(effectiveStipendForCycle(adjustedLedger, cycle), targetPaise + ordinaryThisCycle(initialLedger, cycle));
+      // Remaining balance equals targetPaise
+      expect(effectiveStipendForCycle(adjustedLedger, cycle) - ordinaryThisCycle(adjustedLedger, cycle), targetPaise);
       // Spending is completely unchanged (still ₹500, zero fake transactions)
       expect(ordinaryThisCycle(adjustedLedger, cycle), 50000);
       expect(adjustedLedger.transactions.length, 1);
       expect(adjustedLedger.transactions.first.merchant, 'Canteen');
+    });
+
+    test('balance adjustment directly overrides rollover without mutating base stipend to 60', () {
+      final prevDay = const LocalDate(2026, 10, 31);
+      final currentDay = const LocalDate(2026, 11, 1);
+      final currentCycle = PayCycle.containing(currentDay, 1);
+
+      // October cycle with ₹1,000 stipend and ₹60 spent -> ₹940 unspent rollover
+      final prevSpend = Txn(
+        id: 't_oct',
+        amountPaise: 6000, // ₹60
+        categoryId: 'food',
+        merchant: 'Tea & Book',
+        occurredAtMs: 1000,
+        localDate: prevDay,
+        direction: Direction.debit,
+        bucket: Bucket.daily,
+        note: 'Oct 31 spends',
+      );
+
+      final ledgerWithRollover = Ledger(
+        settings: const Settings(
+          stipendPaise: 100000, // ₹1,000 base stipend
+          cycleStartDay: 1,
+          hideAmounts: false,
+          onboarded: true,
+          pacingMode: PacingMode.weekly,
+          rolloverUnspent: true,
+        ),
+        categories: const [],
+        transactions: [prevSpend],
+        outings: const [],
+      );
+
+      // Before adjustment: effective stipend is ₹1,000 base + ₹940 rollover = ₹1,940
+      expect(rolloverSavingsFromPreviousCycle(ledgerWithRollover, currentCycle), 94000);
+      expect(effectiveStipendForCycle(ledgerWithRollover, currentCycle), 194000);
+      // Weekly view gives 8 days allowance out of 30 days = ₹517.28
+      final weekBefore = buildCurrentWeek(ledgerWithRollover, date: currentDay);
+      expect(weekBefore.budget.remaining, 51728);
+
+      // User modifies balance directly to ₹1,000
+      const targetPaise = 100000;
+      final cycleKey = currentCycle.start.ymd;
+      final newAdjustments = Map<String, int>.from(ledgerWithRollover.settings.cycleAdjustments);
+      newAdjustments[cycleKey] = targetPaise + ordinaryThisCycle(ledgerWithRollover, currentCycle);
+
+      final adjustedLedger = Ledger(
+        settings: ledgerWithRollover.settings.copyWith(
+          stipendPaise: targetPaise,
+          cycleAdjustments: newAdjustments,
+        ),
+        categories: ledgerWithRollover.categories,
+        transactions: ledgerWithRollover.transactions,
+        outings: ledgerWithRollover.outings,
+      );
+
+      // 1. Base stipend is STILL ₹1,000 (NOT ruined to ₹60)
+      expect(adjustedLedger.settings.stipendPaise, 100000);
+      // 2. November effective stipend is directly ₹1,000
+      expect(effectiveStipendForCycle(adjustedLedger, currentCycle), 100000);
+      // 3. Weekly allowance immediately updates from ₹517.28 to ₹266.64
+      final weekAfter = buildCurrentWeek(adjustedLedger, date: currentDay);
+      expect(weekAfter.budget.remaining, 26664); // Exactly ₹266.64
+      // 4. Daily allowance is ₹33.33
+      final dayAfter = buildToday(adjustedLedger, date: currentDay);
+      expect(dayAfter.budget.remaining, 3333); // Exactly ₹33.33
     });
   });
 }

@@ -29,6 +29,7 @@ class AdjustBalanceSheet extends ConsumerStatefulWidget {
 class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
   late AmountValue _amount;
   bool _initialized = false;
+  bool _isFirstDigit = true;
 
   @override
   Widget build(BuildContext context) {
@@ -39,13 +40,18 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
 
     final today = LocalDate.today();
     final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
-    final rolloverPaise = rolloverSavingsFromPreviousCycle(ledger, cycle);
+    final cycleKey = cycle.start.ymd;
+    final hasCycleOverride = ledger.settings.cycleAdjustments.containsKey(cycleKey);
+    final rolloverPaise = hasCycleOverride ? 0 : rolloverSavingsFromPreviousCycle(ledger, cycle);
+    final currentRemaining = effectiveStipendForCycle(ledger, cycle) - ordinaryThisCycle(ledger, cycle);
     final currentStipendPaise = ledger.settings.stipendPaise;
 
     if (!_initialized) {
-      // Default to the current monthly stipend if valid (> 6000), otherwise prefill ₹1,000
-      final initialPaise = currentStipendPaise > 6000 ? currentStipendPaise : 100000;
+      final initialPaise = currentRemaining >= 0
+          ? currentRemaining
+          : (currentStipendPaise > 0 ? currentStipendPaise : 100000);
       _amount = AmountValue.fromPaise(initialPaise);
+      _isFirstDigit = true;
       _initialized = true;
     }
 
@@ -97,7 +103,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                       children: [
                         Text('Modify Account Balance', style: TypeScale.title(t.ink)),
                         Text(
-                          'Directly set your monthly pocket money balance',
+                          'Directly set your remaining pocket money balance',
                           style: TypeScale.caption(t.inkSoft),
                         ),
                       ],
@@ -124,7 +130,7 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Includes ₹${rolloverPaise ~/ 100} unspent rolled over from previous cycle',
+                          'Current balance includes ₹${rolloverPaise ~/ 100} unspent rolled over from previous cycle',
                           style: TypeScale.caption(t.accent).copyWith(
                             fontWeight: FontWeight.w600,
                             fontSize: 11,
@@ -155,9 +161,9 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        targetPaise == currentStipendPaise
-                            ? 'Matches current monthly stipend (${Money.formatPaise(currentStipendPaise)})'
-                            : 'Sets monthly pocket money balance directly to ${Money.formatPaise(targetPaise)} with zero spending entries',
+                        targetPaise == currentRemaining
+                            ? 'Matches current remaining balance (${Money.formatPaise(currentRemaining)})'
+                            : 'Sets remaining balance directly to ${Money.formatPaise(targetPaise)} with zero spending entries',
                         style: TypeScale.caption(t.inkSoft),
                       ),
                     ),
@@ -169,6 +175,8 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
               // Amount Pad
               AmountPad(
                 value: _amount,
+                clearOnFirstDigit: _isFirstDigit,
+                onFirstDigitCleared: () => setState(() => _isFirstDigit = false),
                 onChanged: (v) => setState(() => _amount = v),
               ),
               const SizedBox(height: Space.x4),
@@ -190,9 +198,24 @@ class _AdjustBalanceSheetState extends ConsumerState<AdjustBalanceSheet> {
     final targetPaise = _amount.paiseTotal;
     if (targetPaise <= 0) return;
 
-    // Directly set the monthly pocket money stipend to the user's desired amount
+    final today = LocalDate.today();
+    final cycle = PayCycle.containing(today, ledger.settings.cycleStartDay);
+    final cycleKey = cycle.start.ymd;
+    final spentThisCycle = ordinaryThisCycle(ledger, cycle);
+
+    final newAdjustments = Map<String, int>.from(ledger.settings.cycleAdjustments);
+    newAdjustments[cycleKey] = targetPaise + spentThisCycle;
+
+    // Ensure base monthly stipend is valid if it was corrupted to <= 6000
+    final healedStipend = ledger.settings.stipendPaise <= 6000 || ledger.settings.stipendPaise == targetPaise
+        ? targetPaise
+        : ledger.settings.stipendPaise;
+
     await ref.read(ledgerProvider.notifier).updateSettings(
-          ledger.settings.copyWith(stipendPaise: targetPaise),
+          ledger.settings.copyWith(
+            stipendPaise: healedStipend,
+            cycleAdjustments: newAdjustments,
+          ),
         );
 
     if (context.mounted) {

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 
 import '../core/dates.dart';
 
@@ -378,6 +378,7 @@ class Settings {
     this.fixedDeductions = const [],
     this.appThemeMode = AppThemeMode.system,
     this.rolloverUnspent = true,
+    this.cycleAdjustments = const {},
     this.emailSyncAddress = '',
     this.emailSyncAppPassword = '',
     this.emailSyncSender = 'noreply@slice.bank.in',
@@ -395,6 +396,7 @@ class Settings {
   final List<FixedDeduction> fixedDeductions;
   final AppThemeMode appThemeMode;
   final bool rolloverUnspent;
+  final Map<String, int> cycleAdjustments;
   final String emailSyncAddress;
   final String emailSyncAppPassword;
   final String emailSyncSender;
@@ -418,6 +420,7 @@ class Settings {
     List<FixedDeduction>? fixedDeductions,
     AppThemeMode? appThemeMode,
     bool? rolloverUnspent,
+    Map<String, int>? cycleAdjustments,
     String? emailSyncAddress,
     String? emailSyncAppPassword,
     String? emailSyncSender,
@@ -435,6 +438,7 @@ class Settings {
       fixedDeductions: fixedDeductions ?? this.fixedDeductions,
       appThemeMode: appThemeMode ?? this.appThemeMode,
       rolloverUnspent: rolloverUnspent ?? this.rolloverUnspent,
+      cycleAdjustments: cycleAdjustments ?? this.cycleAdjustments,
       emailSyncAddress: emailSyncAddress ?? this.emailSyncAddress,
       emailSyncAppPassword: emailSyncAppPassword ?? this.emailSyncAppPassword,
       emailSyncSender: emailSyncSender ?? this.emailSyncSender,
@@ -457,6 +461,7 @@ class Settings {
           biometricEnabled == other.biometricEnabled &&
           appThemeMode == other.appThemeMode &&
           rolloverUnspent == other.rolloverUnspent &&
+          mapEquals(cycleAdjustments, other.cycleAdjustments) &&
           emailSyncAddress == other.emailSyncAddress &&
           emailSyncAppPassword == other.emailSyncAppPassword &&
           emailSyncSender == other.emailSyncSender &&
@@ -475,6 +480,7 @@ class Settings {
         biometricEnabled,
         appThemeMode,
         rolloverUnspent,
+        Object.hashAll(cycleAdjustments.entries.map((e) => Object.hash(e.key, e.value))),
         emailSyncAddress,
         emailSyncAppPassword,
         emailSyncSender,
