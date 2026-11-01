@@ -20,7 +20,9 @@ class BackupService {
         'pacing_mode': s.pacingMode.name,
         'leftover_policy': s.leftoverPolicy.name,
         'biometric_enabled': s.biometricEnabled,
-        'is_vacation_mode': s.isVacationMode,
+        'app_theme_mode': s.appThemeMode.name,
+        'rollover_unspent': s.rolloverUnspent,
+        'cycle_adjustments': s.cycleAdjustments,
       },
       'categories': [
         for (final c in ledger.categories)
@@ -79,6 +81,7 @@ class BackupService {
             'settled_at_ms': s.settledAtMs,
           }
       ],
+      'saved_friends': ledger.savedFriends,
     };
 
     return const JsonEncoder.withIndent('  ').convert(data);
@@ -86,17 +89,18 @@ class BackupService {
 
   static Future<bool> restoreFromJson(String jsonStr, PocketRepository repo) async {
     try {
-      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-      if (!map.containsKey('pocket_version')) return false;
+      final decoded = jsonDecode(jsonStr);
+      if (decoded is! Map<String, dynamic>) return false;
+      if (!decoded.containsKey('pocket_version')) return false;
 
-      // Wipe current data
-      await repo.wipe();
-
-      // Restore settings
-      final sMap = map['settings'] as Map<String, dynamic>? ?? {};
+      // 1. Pre-validate and construct Settings
+      final sMap = decoded['settings'];
+      if (sMap is! Map<String, dynamic>) return false;
+      final rawStipend = sMap['stipend_paise'] as int? ?? 250000;
+      final rawCycle = sMap['cycle_start_day'] as int? ?? 1;
       final settings = Settings(
-        stipendPaise: sMap['stipend_paise'] as int? ?? 250000,
-        cycleStartDay: sMap['cycle_start_day'] as int? ?? 1,
+        stipendPaise: rawStipend < 0 ? 0 : rawStipend,
+        cycleStartDay: rawCycle.clamp(1, 31),
         hideAmounts: sMap['hide_amounts'] as bool? ?? false,
         onboarded: sMap['onboarded'] as bool? ?? true,
         pacingMode: sMap['pacing_mode'] == 'weekly' ? PacingMode.weekly : PacingMode.daily,
@@ -104,79 +108,167 @@ class BackupService {
             ? LeftoverPolicy.outingsPiggyBank
             : LeftoverPolicy.dynamicDistribute,
         biometricEnabled: sMap['biometric_enabled'] as bool? ?? false,
-        isVacationMode: sMap['is_vacation_mode'] as bool? ?? false,
+        appThemeMode: sMap['app_theme_mode'] == 'dark'
+            ? AppThemeMode.dark
+            : (sMap['app_theme_mode'] == 'light' ? AppThemeMode.light : AppThemeMode.system),
+        rolloverUnspent: sMap['rollover_unspent'] as bool? ?? true,
+        cycleAdjustments: sMap['cycle_adjustments'] is Map
+            ? (sMap['cycle_adjustments'] as Map)
+                .map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
+            : const {},
       );
-      await repo.saveSettings(settings);
 
-      // Restore custom categories
-      final catList = (map['categories'] as List<dynamic>? ?? []);
-      for (final c in catList) {
-        final isSystem = c['is_system'] as bool? ?? false;
-        if (!isSystem) {
-          await repo.addCategory(
-            c['name'] as String? ?? 'Custom',
-            icon: c['icon'] as String? ?? 'custom',
-          );
+      // 2. Pre-validate and construct Custom Categories and sort orders
+      final catList = decoded['categories'];
+      final customCategories = <Category>[];
+      final systemCategorySortOrders = <String, int>{};
+      if (catList is List) {
+        var sortOrder = 4;
+        for (final item in catList) {
+          if (item is Map<String, dynamic>) {
+            final isSys = item['is_system'] as bool? ?? false;
+            final id = item['id'] as String? ?? '';
+            final itemOrder = item['sort_order'] as int?;
+            if (isSys && id.isNotEmpty && itemOrder != null) {
+              systemCategorySortOrders[id] = itemOrder;
+            } else if (!isSys) {
+              final name = (item['name'] as String? ?? '').trim();
+              if (name.isNotEmpty) {
+                customCategories.add(
+                  Category(
+                    id: id.isNotEmpty ? id : 'cat_${customCategories.length}',
+                    name: name,
+                    icon: (item['icon'] as String?) ?? 'custom',
+                    isSystem: false,
+                    sortOrder: itemOrder ?? sortOrder++,
+                  ),
+                );
+              }
+            }
+          }
         }
       }
 
-      // Restore fixed deductions
-      final dedList = (map['fixed_deductions'] as List<dynamic>? ?? []);
-      for (final d in dedList) {
-        await repo.addFixedDeduction(
-          title: d['title'] as String? ?? 'Fixed cost',
-          amountPaise: d['amount_paise'] as int? ?? 0,
-          isEnabled: d['is_enabled'] as bool? ?? true,
-        );
-      }
-
-      // Restore outings
-      final outingList = (map['outings'] as List<dynamic>? ?? []);
-      final outingIdMap = <String, String>{};
-      for (final o in outingList) {
-        final oldId = o['id'] as String;
-        final created = await repo.addOuting(
-          title: o['title'] as String? ?? 'Outing',
-          localDate: LocalDate.parse(o['local_date'] as String),
-          note: o['note'] as String? ?? '',
-        );
-        outingIdMap[oldId] = created.id;
-      }
-
-      // Restore transactions
-      final txnList = (map['transactions'] as List<dynamic>? ?? []);
-      for (final t in txnList) {
-        final rawOutingId = t['outing_id'] as String?;
-        await repo.addTxn(
-          amountPaise: t['amount_paise'] as int? ?? 0,
-          direction: t['direction'] == 'credit' ? Direction.credit : Direction.debit,
-          localDate: LocalDate.parse(t['local_date'] as String),
-          merchant: t['merchant'] as String? ?? 'Expense',
-          categoryId: t['category_id'] as String? ?? 'misc',
-          bucket: t['bucket'] == 'outing' ? Bucket.outing : Bucket.daily,
-          outingId: rawOutingId != null ? (outingIdMap[rawOutingId] ?? rawOutingId) : null,
-          note: t['note'] as String? ?? '',
-          occurredAt: DateTime.fromMillisecondsSinceEpoch(t['occurred_at_ms'] as int? ?? DateTime.now().millisecondsSinceEpoch),
-        );
-      }
-
-      // Restore friend splits
-      final splitList = (map['friend_splits'] as List<dynamic>? ?? []);
-      for (final s in splitList) {
-        final created = await repo.addFriendSplit(
-          friendName: s['friend_name'] as String? ?? 'Friend',
-          amountPaise: s['amount_paise'] as int? ?? 0,
-          direction: s['direction'] == 'you_owe' ? SplitDirection.youOwe : SplitDirection.youAreOwed,
-          localDate: LocalDate.parse(s['local_date'] as String),
-          note: s['note'] as String? ?? '',
-          occurredAt: DateTime.fromMillisecondsSinceEpoch(s['occurred_at_ms'] as int? ?? DateTime.now().millisecondsSinceEpoch),
-        );
-        if (s['is_settled'] == true) {
-          await repo.settleFriendSplit(created.id, creditDaily: false);
+      // 3. Pre-validate and construct Fixed Deductions
+      final dedList = decoded['fixed_deductions'];
+      final fixedDeductions = <FixedDeduction>[];
+      if (dedList is List) {
+        for (final item in dedList) {
+          if (item is Map<String, dynamic>) {
+            final title = (item['title'] as String? ?? '').trim();
+            final amt = (item['amount_paise'] as int? ?? 0).clamp(0, 999999999);
+            if (title.isNotEmpty) {
+              fixedDeductions.add(
+                FixedDeduction(
+                  id: (item['id'] as String?) ?? 'fd_${fixedDeductions.length}',
+                  title: title,
+                  amountPaise: amt,
+                  isEnabled: item['is_enabled'] as bool? ?? true,
+                ),
+              );
+            }
+          }
         }
       }
 
-      return true;
+      // 4. Pre-validate and construct Outings
+      final outingList = decoded['outings'];
+      final outings = <Outing>[];
+      if (outingList is List) {
+        for (final item in outingList) {
+          if (item is Map<String, dynamic>) {
+            final date = LocalDate.tryParse(item['local_date'] as String?);
+            if (date == null) return false; // Corrupted date -> abort safely
+            outings.add(
+              Outing(
+                id: (item['id'] as String?) ?? 'out_${outings.length}',
+                title: (item['title'] as String? ?? 'Outing').trim(),
+                localDate: date,
+                note: (item['note'] as String? ?? '').trim(),
+              ),
+            );
+          }
+        }
+      }
+
+      // 5. Pre-validate and construct Transactions
+      final txnList = decoded['transactions'];
+      final transactions = <Txn>[];
+      if (txnList is List) {
+        for (final item in txnList) {
+          if (item is Map<String, dynamic>) {
+            final date = LocalDate.tryParse(item['local_date'] as String?);
+            if (date == null) return false; // Corrupted date -> abort safely
+            final amt = (item['amount_paise'] as int? ?? 0).clamp(0, 999999999);
+            final dir = item['direction'] == 'credit' ? Direction.credit : Direction.debit;
+            final bucket = item['bucket'] == 'outing' ? Bucket.outing : Bucket.daily;
+            transactions.add(
+              Txn(
+                id: (item['id'] as String?) ?? 'txn_${transactions.length}',
+                amountPaise: amt,
+                direction: dir,
+                occurredAtMs: (item['occurred_at_ms'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
+                localDate: date,
+                merchant: (item['merchant'] as String? ?? 'Expense').trim(),
+                categoryId: (item['category_id'] as String? ?? 'misc').trim(),
+                bucket: bucket,
+                outingId: item['outing_id'] as String?,
+                note: (item['note'] as String? ?? '').trim(),
+              ),
+            );
+          }
+        }
+      }
+
+      // 6. Pre-validate and construct Friend Splits
+      final splitList = decoded['friend_splits'];
+      final friendSplits = <FriendSplit>[];
+      if (splitList is List) {
+        for (final item in splitList) {
+          if (item is Map<String, dynamic>) {
+            final date = LocalDate.tryParse(item['local_date'] as String?);
+            if (date == null) return false;
+            final amt = (item['amount_paise'] as int? ?? 0).clamp(0, 999999999);
+            final dir = item['direction'] == 'you_owe' ? SplitDirection.youOwe : SplitDirection.youAreOwed;
+            friendSplits.add(
+              FriendSplit(
+                id: (item['id'] as String?) ?? 'split_${friendSplits.length}',
+                friendName: (item['friend_name'] as String? ?? 'Friend').trim(),
+                amountPaise: amt,
+                direction: dir,
+                occurredAtMs: (item['occurred_at_ms'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
+                localDate: date,
+                note: (item['note'] as String? ?? '').trim(),
+                isSettled: item['is_settled'] as bool? ?? false,
+                settledAtMs: item['settled_at_ms'] as int?,
+              ),
+            );
+          }
+        }
+      }
+
+      // 7. Pre-validate Saved Friends
+      final savedFriendsList = decoded['saved_friends'];
+      final savedFriends = <String>[];
+      if (savedFriendsList is List) {
+        for (final item in savedFriendsList) {
+          if (item is String && item.trim().isNotEmpty) {
+            savedFriends.add(item.trim());
+          }
+        }
+      }
+
+      // 8. Atomic Restore: All validations passed! Perform transactional wipe + restore
+      return await repo.restoreSnapshot(
+        settings: settings,
+        customCategories: customCategories,
+        fixedDeductions: fixedDeductions,
+        outings: outings,
+        transactions: transactions,
+        friendSplits: friendSplits,
+        savedFriends: savedFriends,
+        systemCategorySortOrders: systemCategorySortOrders,
+      );
     } catch (_) {
       return false;
     }

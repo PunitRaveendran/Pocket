@@ -44,25 +44,44 @@ class AmountDisplay extends StatelessWidget {
 }
 
 class AmountPad extends StatelessWidget {
-  const AmountPad({super.key, required this.value, required this.onChanged});
+  const AmountPad({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.clearOnFirstDigit = false,
+    this.onFirstDigitCleared,
+  });
 
   final AmountValue value;
   final ValueChanged<AmountValue> onChanged;
+  final bool clearOnFirstDigit;
+  final VoidCallback? onFirstDigitCleared;
 
   void _digit(String d) {
     HapticFeedback.selectionClick();
     var digits = value.rupeeDigits;
-    if (digits.length >= 7) return;
-    if (digits == '0') {
+    final newPaise = clearOnFirstDigit ? 0 : value.paise;
+    if (clearOnFirstDigit) {
       digits = d;
+      onFirstDigitCleared?.call();
     } else {
-      digits = digits + d;
+      if (digits.length >= 7) return;
+      if (digits == '0') {
+        digits = d;
+      } else {
+        digits = digits + d;
+      }
     }
-    onChanged(AmountValue(rupeeDigits: digits, paise: value.paise));
+    onChanged(AmountValue(rupeeDigits: digits, paise: newPaise));
   }
 
   void _backspace() {
     HapticFeedback.selectionClick();
+    if (clearOnFirstDigit) {
+      onFirstDigitCleared?.call();
+      onChanged(const AmountValue(rupeeDigits: '0', paise: 0));
+      return;
+    }
     if (value.rupeeDigits.length <= 1) {
       onChanged(const AmountValue(rupeeDigits: '0', paise: 0));
       return;
@@ -75,10 +94,12 @@ class AmountPad extends StatelessWidget {
 
   void _addQuick(int addRupees) {
     HapticFeedback.selectionClick();
+    final cleared = clearOnFirstDigit;
+    onFirstDigitCleared?.call();
     final current = int.tryParse(value.rupeeDigits) ?? 0;
     final updated = current + addRupees;
     if (updated > 999999) return;
-    onChanged(AmountValue(rupeeDigits: '$updated', paise: value.paise));
+    onChanged(AmountValue(rupeeDigits: '$updated', paise: cleared ? 0 : value.paise));
   }
 
   @override

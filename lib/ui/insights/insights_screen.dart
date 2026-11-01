@@ -23,11 +23,15 @@ class InsightsScreen extends ConsumerStatefulWidget {
   ConsumerState<InsightsScreen> createState() => _InsightsScreenState();
 }
 
-class _InsightsScreenState extends ConsumerState<InsightsScreen> {
+class _InsightsScreenState extends ConsumerState<InsightsScreen> with AutomaticKeepAliveClientMixin {
   GraphMode _selectedGraph = GraphMode.daily;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final t = TokenScope.of(context);
     final async = ref.watch(ledgerProvider);
 
@@ -40,32 +44,33 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
         final hide = ledger.settings.hideAmounts;
         final ordinary = ordinaryThisCycle(ledger, cycle);
         final extra = extraThisCycle(ledger, cycle);
-        final stipend = ledger.settings.stipendPaise;
+        final stipend = effectiveStipendForCycle(ledger, cycle);
+        final hasCycleOverride = ledger.settings.cycleAdjustments.containsKey(cycle.start.ymd);
+        final rolloverPaise = hasCycleOverride ? 0 : rolloverSavingsFromPreviousCycle(ledger, cycle);
         final engine = const BudgetEngine();
 
         final daysElapsed = today.dateTime.difference(cycle.start.dateTime).inDays + 1;
         final daysRemaining = cycle.endInclusive.dateTime.difference(today.dateTime).inDays + 1;
-        final remainingStipend = stipend - ordinary;
-        final safeDailyPaise = (daysRemaining > 0 && remainingStipend > 0)
-            ? remainingStipend ~/ daysRemaining
-            : 0;
+
+        // Single-pass aggregation of daily net spends
+        final dailyNetMap = <LocalDate, int>{};
+        for (final x in ledger.transactions) {
+          if (x.bucket == Bucket.daily) {
+            dailyNetMap[x.localDate] = (dailyNetMap[x.localDate] ?? 0) + x.signedPaise;
+          }
+        }
 
         // Last 7 days data
         final days = <_DayBar>[];
         for (var i = 6; i >= 0; i--) {
           final d = today.addDays(-i);
-          final spent = ledger.transactions
-              .where((x) => x.bucket == Bucket.daily && x.localDate == d && x.direction == Direction.debit)
-              .fold<int>(0, (a, x) => a + x.amountPaise);
-          final refunds = ledger.transactions
-              .where((x) => x.bucket == Bucket.daily && x.localDate == d && x.direction == Direction.credit)
-              .fold<int>(0, (a, x) => a + x.amountPaise);
+          final netSpent = dailyNetMap[d] ?? 0;
           final allow = engine.allowanceFor(
             stipendPaise: stipend,
             cycle: cycle,
             day: d,
           );
-          days.add(_DayBar(date: d, spent: (spent - refunds).clamp(0, 999999999), allowance: allow));
+          days.add(_DayBar(date: d, spent: netSpent.clamp(0, 999999999), allowance: allow));
         }
 
         // Weekly trend data
@@ -76,19 +81,15 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           final wEnd = w.end;
 
           var wAllowance = 0;
-          for (var d = wStart; !d.dateTime.isAfter(wEnd.dateTime); d = d.addDays(1)) {
+          var wSpent = 0;
+          for (var d = wStart; !d.isAfter(wEnd); d = d.addDays(1)) {
             wAllowance += engine.allowanceFor(
               stipendPaise: stipend,
               cycle: cycle,
               day: d,
             );
+            wSpent += dailyNetMap[d] ?? 0;
           }
-
-          final wSpent = ledger.transactions.where((t) {
-            if (t.bucket != Bucket.daily) return false;
-            final dt = t.localDate.dateTime;
-            return !dt.isBefore(wStart.dateTime) && !dt.isAfter(wEnd.dateTime);
-          }).fold<int>(0, (sum, t) => sum + t.signedPaise);
 
           weekBars.add(_WeekBar(
             weekNumber: w.weekNumber,
@@ -131,37 +132,21 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
               'Day $daysElapsed of ${cycle.lengthDays} · $daysRemaining ${daysRemaining == 1 ? 'day' : 'days'} left',
               style: TypeScale.caption(t.inkSoft),
             ),
-            const SizedBox(height: Space.x4),
-
-            // Pacing Advice Card
-            Container(
-              padding: const EdgeInsets.all(Space.x4),
-              decoration: BoxDecoration(
-                color: t.card,
-                border: Border.all(color: t.rule),
-                borderRadius: BorderRadius.circular(Space.cardRadius),
+            if (rolloverPaise > 0) ...[
+              const SizedBox(height: Space.x2),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: t.accentTint,
+                  borderRadius: BorderRadius.circular(Space.controlRadius),
+                ),
+                child: Text(
+                  'Includes ₹${rolloverPaise ~/ 100} savings rolled forward from last cycle',
+                  style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w600),
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.speed_outlined, size: 18, color: t.accent),
-                      const SizedBox(width: 8),
-                      Text('Safe Daily Pace', style: TypeScale.heading(t.ink)),
-                    ],
-                  ),
-                  const SizedBox(height: Space.x2),
-                  Text(
-                    remainingStipend > 0
-                        ? 'You have ${Money.formatPaise(remainingStipend, hide: hide)} left in your monthly pool. You can safely spend up to ${Money.formatPaise(safeDailyPaise, hide: hide)}/day for the remaining $daysRemaining days.'
-                        : 'You have reached your ordinary monthly allowance for this cycle.',
-                    style: TypeScale.body(t.inkSoft),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: Space.x6),
+            ],
+            const SizedBox(height: Space.x2),
 
             _Stat(label: 'Monthly stipend', value: Money.formatPaise(stipend, hide: hide)),
             _Stat(label: 'Spent on ordinary days', value: Money.formatPaise(ordinary, hide: hide)),

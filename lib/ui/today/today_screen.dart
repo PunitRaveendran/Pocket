@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -10,14 +11,13 @@ import '../../l10n/copy.dart';
 import '../../state/ledger.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/tokens.dart';
+import '../sheets/adjust_balance_sheet.dart';
 import '../sheets/overspend_sheet.dart';
-import '../sheets/receipt_sheet.dart';
 import '../sheets/spend_sheet.dart';
 import '../widgets/allowance_meter.dart';
 import '../widgets/category_icon.dart';
 import '../widgets/chips.dart';
 import '../widgets/hairline.dart';
-import '../widgets/primary_button.dart';
 import '../widgets/transaction_row.dart';
 
 class TodayScreen extends ConsumerStatefulWidget {
@@ -27,22 +27,38 @@ class TodayScreen extends ConsumerStatefulWidget {
   ConsumerState<TodayScreen> createState() => _TodayScreenState();
 }
 
-class _TodayScreenState extends ConsumerState<TodayScreen> {
+class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAliveClientMixin {
   String? _filter;
   LocalDate _selectedDate = LocalDate.today();
+  PacingMode? _pacingOverride;
 
   bool get _isToday => _selectedDate == LocalDate.today();
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final t = TokenScope.of(context);
-    final async = ref.watch(ledgerProvider);
+    final async = ref.watch(
+      ledgerProvider.select(
+        (a) => a.whenData((l) => (l.settings, l.categories, l.transactions)),
+      ),
+    );
 
     return async.when(
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Center(child: Text('$e')),
-      data: (ledger) {
-        final isWeekly = ledger.settings.pacingMode == PacingMode.weekly;
+      data: (data) {
+        final (settings, categories, transactions) = data;
+        final ledger = Ledger(
+          settings: settings,
+          categories: categories,
+          transactions: transactions,
+          outings: const [],
+        );
+        final isWeekly = (_pacingOverride ?? ledger.settings.pacingMode) == PacingMode.weekly;
         final hide = ledger.settings.hideAmounts;
 
         final int remaining;
@@ -100,6 +116,9 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                 );
         }
 
+        final figureColor = remaining < 0 ? t.over : t.ink;
+        final figure = Money.formatPaise(remaining.abs(), hide: hide);
+
         // Filter transactions for this day or week
         final filtered = _filter == null
             ? dayTxns
@@ -118,68 +137,29 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
           }
         }
 
-        final isVacation = ledger.settings.isVacationMode;
-        final figureColor = isVacation ? t.accent : (remaining < 0 ? t.over : t.ink);
-        final figure = isVacation
-            ? Money.formatPaise(totalSpentToday.clamp(0, 999999999), hide: hide)
-            : Money.formatPaise(remaining.abs(), hide: hide);
-        final displayLabel = isVacation ? 'vacation pause' : label;
-        final displayCaption = isVacation ? 'Daily allowance paused while staying home' : caption;
-        final displayRatio = isVacation ? 0.0 : usedRatio;
-
-        final dayNumberInCycle = _selectedDate.dateTime.difference(cycle.start.dateTime).inDays + 1;
         final daysRemainingInCycle = cycle.endInclusive.dateTime.difference(_selectedDate.dateTime).inDays + 1;
         final pacePaise = safeDailyPace(ledger, cycle, _selectedDate);
-        final isCrunchMode = !isVacation && daysRemainingInCycle >= 3 && daysRemainingInCycle <= 14 && pacePaise > 0 && pacePaise < 4000;
+        final isCrunchMode = daysRemainingInCycle >= 3 && daysRemainingInCycle <= 14 && pacePaise > 0 && pacePaise < 4000;
         final piggyPaise = ledger.settings.leftoverPolicy == LeftoverPolicy.outingsPiggyBank
             ? outingsPiggyBank(ledger, cycle, _selectedDate)
             : 0;
 
-        return CustomScrollView(
-          slivers: [
+        return RefreshIndicator(
+          color: t.accent,
+          backgroundColor: t.card,
+          onRefresh: () async {
+            await ref.read(ledgerProvider.notifier).syncAllBankTransactions();
+          },
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(Space.margin, Space.x4, Space.margin, 0),
+                padding: const EdgeInsets.fromLTRB(Space.margin, Space.x2, Space.margin, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (isVacation) ...[
-                      Container(
-                        margin: const EdgeInsets.only(bottom: Space.x3),
-                        padding: const EdgeInsets.symmetric(horizontal: Space.x3, vertical: Space.x2),
-                        decoration: BoxDecoration(
-                          color: t.card,
-                          borderRadius: BorderRadius.circular(Space.controlRadius),
-                          border: Border.all(color: t.rule),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.beach_access, size: 20, color: t.accent),
-                            const SizedBox(width: Space.x2),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Semester Break Active',
-                                    style: TypeScale.body(t.ink).copyWith(fontWeight: FontWeight.w700, fontSize: 13),
-                                  ),
-                                  Text(
-                                    'Daily allowance paused while at home. Spends track without depleting campus budget.',
-                                    style: TypeScale.caption(t.inkSoft),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => ref.read(ledgerProvider.notifier).setVacationMode(false),
-                              child: Text('Resume', style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    // Mode Switcher (Daily / Weekly) and Date Navigation Bar
+                    // Mode Switcher (D / W) and Date Navigation Bar
                     Row(
                       children: [
                         IconButton(
@@ -188,6 +168,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           icon: Icon(Icons.chevron_left, color: t.inkSoft, size: 24),
                           tooltip: isWeekly ? 'Previous week' : 'Previous day',
                           onPressed: () {
+                            HapticFeedback.selectionClick();
                             if (isWeekly && weekBudget != null) {
                               setState(() => _selectedDate = weekBudget!.startDate.addDays(-1));
                             } else {
@@ -195,18 +176,21 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                             }
                           },
                         ),
-                        const SizedBox(width: Space.x2),
-                        Text(
-                          isWeekly && weekBudget != null
-                              ? (weekBudget.contains(LocalDate.today())
-                                  ? 'This Week (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})'
-                                  : 'Week ${weekBudget.weekNumber} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})')
-                              : (_isToday
-                                  ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
-                                  : DateFormat('EEE, d MMM').format(_selectedDate.dateTime)),
-                          style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+                        const SizedBox(width: Space.x1),
+                        Expanded(
+                          child: Text(
+                            isWeekly && weekBudget != null
+                                ? (weekBudget.contains(LocalDate.today())
+                                    ? 'This Week (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})'
+                                    : 'Week ${weekBudget.weekNumber} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})')
+                                : (_isToday
+                                    ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
+                                    : DateFormat('EEE, d MMM').format(_selectedDate.dateTime)),
+                            style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        const SizedBox(width: Space.x2),
+                        const SizedBox(width: Space.x1),
                         IconButton(
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
@@ -219,6 +203,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           onPressed: (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday)
                               ? null
                               : () {
+                                  HapticFeedback.selectionClick();
                                   if (isWeekly && weekBudget != null) {
                                     setState(() => _selectedDate = weekBudget!.endDate.addDays(1));
                                   } else {
@@ -226,8 +211,8 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                                   }
                                 },
                         ),
-                        const Spacer(),
-                        // Daily / Weekly toggle
+                        const SizedBox(width: Space.x2),
+                        // D / W compact toggle
                         Container(
                           padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
@@ -238,44 +223,58 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              InkWell(
-                                onTap: () => ref
-                                    .read(ledgerProvider.notifier)
-                                    .setPacingMode(PacingMode.daily),
-                                borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: !isWeekly ? t.accentTint : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                                  ),
-                                  child: Text(
-                                    'Daily',
-                                    style: TypeScale.caption(!isWeekly ? t.accent : t.inkSoft)
-                                        .copyWith(
-                                      fontWeight: !isWeekly ? FontWeight.w700 : FontWeight.w500,
-                                      fontSize: 11,
+                              Tooltip(
+                                message: 'Daily',
+                                child: InkWell(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _pacingOverride = PacingMode.daily);
+                                    ref
+                                        .read(ledgerProvider.notifier)
+                                        .setPacingMode(PacingMode.daily);
+                                  },
+                                  borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: !isWeekly ? t.accentTint : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                    ),
+                                    child: Text(
+                                      'D',
+                                      style: TypeScale.caption(!isWeekly ? t.accent : t.inkSoft)
+                                          .copyWith(
+                                        fontWeight: !isWeekly ? FontWeight.w800 : FontWeight.w500,
+                                        fontSize: 11,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                              InkWell(
-                                onTap: () => ref
-                                    .read(ledgerProvider.notifier)
-                                    .setPacingMode(PacingMode.weekly),
-                                borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: isWeekly ? t.accentTint : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(Space.controlRadius - 2),
-                                  ),
-                                  child: Text(
-                                    'Weekly',
-                                    style: TypeScale.caption(isWeekly ? t.accent : t.inkSoft)
-                                        .copyWith(
-                                      fontWeight: isWeekly ? FontWeight.w700 : FontWeight.w500,
-                                      fontSize: 11,
+                              Tooltip(
+                                message: 'Weekly',
+                                child: InkWell(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _pacingOverride = PacingMode.weekly);
+                                    ref
+                                        .read(ledgerProvider.notifier)
+                                        .setPacingMode(PacingMode.weekly);
+                                  },
+                                  borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: isWeekly ? t.accentTint : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                    ),
+                                    child: Text(
+                                      'W',
+                                      style: TypeScale.caption(isWeekly ? t.accent : t.inkSoft)
+                                          .copyWith(
+                                        fontWeight: isWeekly ? FontWeight.w800 : FontWeight.w500,
+                                        fontSize: 11,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -285,15 +284,88 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: Space.x3),
-                    Semantics(
-                      label: '${Money.spokenRupees(remaining.abs())} $displayLabel',
-                      child: Text(figure, style: TypeScale.figure(figureColor)),
+                    const SizedBox(height: Space.x2),
+                    // Balance & Compact Side Add Spend Button
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              showAdjustBalanceSheet(context);
+                            },
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Semantics(
+                                    label: '${Money.spokenRupees(remaining.abs())} $label',
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(figure, style: TypeScale.figure(figureColor)),
+                                          const SizedBox(width: 6),
+                                          Icon(
+                                            Icons.edit_outlined,
+                                            size: 16,
+                                            color: t.inkSoft.withValues(alpha: 0.6),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '$label · tap to adjust',
+                                    style: TypeScale.body(t.inkSoft),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: Space.x3),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: t.accent,
+                            foregroundColor: t.paper,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            minimumSize: const Size(0, 38),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(Space.controlRadius),
+                            ),
+                            elevation: 0,
+                          ),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              Copy.addSpend,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          onPressed: () {
+                            HapticFeedback.lightImpact();
+                            showSpendSheet(
+                              context,
+                              initialCategoryId: _filter,
+                              initialDate: _selectedDate,
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                    Text(displayLabel, style: TypeScale.body(t.inkSoft)),
-                    const SizedBox(height: Space.x4),
-                    AllowanceMeter(ratio: displayRatio, caption: displayCaption),
-                    if (!isVacation && remaining < 0 && topCategoryName != null) ...[
+                    const SizedBox(height: Space.x3),
+                    AllowanceMeter(ratio: usedRatio, caption: caption),
+                    if (remaining < 0 && topCategoryName != null) ...[
                       const SizedBox(height: Space.x2),
                       Text(
                         Copy.categoryTook(
@@ -304,7 +376,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       ),
                     ],
                     // Overspend recovery action banner
-                    if (!isVacation && remaining < 0) ...[
+                    if (remaining < 0) ...[
                       const SizedBox(height: Space.x4),
                       InkWell(
                         onTap: () => showOverspendSheet(
@@ -334,7 +406,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                                       style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
                                     ),
                                     Text(
-                                      'Borrow from tomorrow or reclassify spend to Outings',
+                                      'Reclassify spend to Outings to protect daily allowance',
                                       style: TypeScale.caption(t.inkSoft).copyWith(fontSize: 11),
                                     ),
                                   ],
@@ -346,34 +418,10 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: Space.x4),
-                    // Student cycle pace micro-banner
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: t.rule),
-                        borderRadius: BorderRadius.circular(Space.controlRadius),
-                        color: t.card,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.calendar_month_outlined, size: 16, color: t.inkSoft),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              isWeekly && weekBudget != null
-                                  ? 'Week ${weekBudget.weekNumber} of ${weekBudget.totalWeeks} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)}) · Allowance: ₹${allowancePaise ~/ 100}/wk'
-                                  : 'Day $dayNumberInCycle of ${cycle.lengthDays} · Allowance: ₹${allowancePaise ~/ 100}/day',
-                              style: TypeScale.caption(t.inkSoft),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                     if (isCrunchMode) ...[
-                      const SizedBox(height: Space.x3),
+                      const SizedBox(height: Space.x2),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           color: t.card,
                           border: Border.all(color: t.over.withValues(alpha: 0.6)),
@@ -404,9 +452,9 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       ),
                     ],
                     if (piggyPaise > 0) ...[
-                      const SizedBox(height: Space.x3),
+                      const SizedBox(height: Space.x2),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                         decoration: BoxDecoration(
                           color: t.card,
                           border: Border.all(color: t.rule),
@@ -426,44 +474,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ),
                       ),
                     ],
-                    if (daysRemainingInCycle <= 3) ...[
-                      const SizedBox(height: Space.x3),
-                      InkWell(
-                        onTap: () => showMonthEndReceipt(context, ledger),
-                        borderRadius: BorderRadius.circular(Space.controlRadius),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: t.card,
-                            border: Border.all(color: t.rule),
-                            borderRadius: BorderRadius.circular(Space.controlRadius),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.receipt_long_outlined, size: 16, color: t.inkSoft),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Cycle wrapping up · Tap for Month-End Paper Receipt',
-                                  style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                              Icon(Icons.chevron_right, size: 16, color: t.inkSoft),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: Space.x6),
-                    PrimaryButton(
-                      label: Copy.addSpend,
-                      onPressed: () => showSpendSheet(
-                        context,
-                        initialCategoryId: _filter,
-                        initialDate: _selectedDate,
-                      ),
-                    ),
-                    const SizedBox(height: Space.x6),
+                    const SizedBox(height: Space.x4),
                     // Categories horizontal tab bar with spent counters
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -474,7 +485,10 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                                 ? 'All · ₹${totalSpentToday ~/ 100}'
                                 : Copy.all,
                             selected: _filter == null,
-                            onTap: () => setState(() => _filter = null),
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setState(() => _filter = null);
+                            },
                           ),
                           const SizedBox(width: Space.x2),
                           for (final c in ledger.categories) ...[
@@ -488,7 +502,10 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                                   label: label,
                                   icon: categoryIcon(c.icon),
                                   selected: _filter == c.id,
-                                  onTap: () => setState(() => _filter = c.id),
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _filter = c.id);
+                                  },
                                 );
                               },
                             ),
@@ -502,7 +519,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: Space.x4),
+                    const SizedBox(height: Space.x3),
                   ],
                 ),
               ),
@@ -524,27 +541,274 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                 ),
               )
             else
-              SliverList.separated(
-                itemCount: filtered.length,
-                separatorBuilder: (context, index) => const Hairline(indent: Space.margin),
-                itemBuilder: (context, i) {
-                  final txn = filtered[i];
-                  final cat = ledger.categoryById(txn.categoryId);
-                  return TransactionRow(
-                    txn: txn,
-                    categoryName: cat?.name ?? Copy.misc,
-                    categoryIconKey: cat?.icon ?? 'misc',
-                    hideAmounts: hide,
-                    onTap: () => showSpendSheet(
-                      context,
-                      editing: txn,
-                      initialDate: _selectedDate,
-                    ),
-                  );
-                },
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) {
+                    final txn = filtered[i];
+                    final cat = ledger.categoryById(txn.categoryId);
+                    final catName = cat?.name ?? Copy.misc;
+                    return Dismissible(
+                      key: Key('txn-dismissible-${txn.id}'),
+                      direction: DismissDirection.horizontal,
+                      dismissThresholds: const {
+                        DismissDirection.startToEnd: 0.25,
+                        DismissDirection.endToStart: 0.35,
+                      },
+                      background: Container(
+                        color: t.accentTint,
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                        child: Row(
+                          children: [
+                            Icon(Icons.swap_horiz_rounded, color: t.accent, size: 20),
+                            const SizedBox(width: Space.x2),
+                            Text(
+                              'Re-categorize',
+                              style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      ),
+                      secondaryBackground: Container(
+                        color: t.overTint,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              'Delete',
+                              style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(width: Space.x2),
+                            Icon(Icons.delete_outline_rounded, color: t.over, size: 20),
+                          ],
+                        ),
+                      ),
+                      confirmDismiss: (direction) async {
+                        if (direction == DismissDirection.startToEnd) {
+                          HapticFeedback.lightImpact();
+                          _showQuickCategoryPicker(t, txn, catName);
+                          return false;
+                        } else if (direction == DismissDirection.endToStart) {
+                          return true;
+                        }
+                        return false;
+                      },
+                      onDismissed: (direction) {
+                        if (direction == DismissDirection.endToStart) {
+                          HapticFeedback.mediumImpact();
+                          ref.read(ledgerProvider.notifier).deleteTxn(txn.id);
+
+                          ScaffoldMessenger.of(context).clearSnackBars();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              behavior: SnackBarBehavior.floating,
+                              margin: const EdgeInsets.all(Space.margin),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(Space.controlRadius),
+                                side: BorderSide(color: t.rule),
+                              ),
+                              backgroundColor: t.card,
+                              elevation: 4,
+                              content: Row(
+                                children: [
+                                  Icon(Icons.delete_outline_rounded, size: 18, color: t.inkSoft),
+                                  const SizedBox(width: Space.x2),
+                                  Expanded(
+                                    child: Text(
+                                      'Deleted ${txn.merchant.isNotEmpty ? txn.merchant : catName} (₹${txn.amountPaise ~/ 100})',
+                                      style: TypeScale.body(t.ink).copyWith(fontSize: 13),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              action: SnackBarAction(
+                                label: 'UNDO',
+                                textColor: t.accent,
+                                onPressed: () {
+                                  HapticFeedback.lightImpact();
+                                  ref.read(ledgerProvider.notifier).restoreTxn(txn);
+                                },
+                              ),
+                              duration: const Duration(seconds: 4),
+                            ),
+                          );
+                        }
+                      },
+                      child: Material(
+                        color: t.paper,
+                        child: Column(
+                          children: [
+                            TransactionRow(
+                              txn: txn,
+                              categoryName: catName,
+                              categoryIconKey: cat?.icon ?? 'misc',
+                              hideAmounts: hide,
+                              onTap: () => showSpendSheet(
+                                context,
+                                editing: txn,
+                                initialDate: _selectedDate,
+                              ),
+                            ),
+                            if (i < filtered.length - 1)
+                              const Hairline(indent: Space.margin)
+                            else
+                              const SizedBox(height: 1),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                  childCount: filtered.length,
+                ),
               ),
             const SliverToBoxAdapter(child: SizedBox(height: Space.x12)),
           ],
+        ),
+      );
+    },
+    );
+  }
+
+  Future<void> _showQuickCategoryPicker(PaperTokens t, Txn txn, String currentCategoryName) async {
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    if (ledger == null) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: t.paper,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Space.cardRadius)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Space.margin, Space.x3, Space.margin, Space.x4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: t.rule,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: Space.x3),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Re-categorize',
+                            style: TypeScale.title(t.ink).copyWith(fontSize: 17),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${txn.merchant.isNotEmpty ? txn.merchant : currentCategoryName} · ₹${txn.amountPaise ~/ 100}',
+                            style: TypeScale.caption(t.inkSoft),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, size: 20, color: t.inkSoft),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Space.x3),
+                Wrap(
+                  spacing: Space.x2,
+                  runSpacing: Space.x2,
+                  children: [
+                    for (final cat in ledger.categories)
+                      InkWell(
+                        onTap: () async {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(sheetContext).pop();
+                          if (cat.id == txn.categoryId) return;
+
+                          final updated = txn.copyWith(categoryId: cat.id);
+                          await ref.read(ledgerProvider.notifier).updateTxn(updated);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).clearSnackBars();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                                behavior: SnackBarBehavior.floating,
+                                margin: const EdgeInsets.all(Space.margin),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(Space.controlRadius),
+                                  side: BorderSide(color: t.rule),
+                                ),
+                                backgroundColor: t.card,
+                                duration: const Duration(seconds: 3),
+                                content: Row(
+                                  children: [
+                                    Icon(categoryIcon(cat.icon), size: 18, color: t.accent),
+                                    const SizedBox(width: Space.x2),
+                                    Expanded(
+                                      child: Text(
+                                        'Moved to ${cat.name}',
+                                        style: TypeScale.body(t.ink).copyWith(fontSize: 13),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                        },
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: cat.id == txn.categoryId ? t.accentTint : t.card,
+                            border: Border.all(
+                              color: cat.id == txn.categoryId ? t.accent : t.rule,
+                              width: cat.id == txn.categoryId ? 1.5 : 1,
+                            ),
+                            borderRadius: BorderRadius.circular(Space.controlRadius),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                categoryIcon(cat.icon),
+                                size: 16,
+                                color: cat.id == txn.categoryId ? t.accent : t.inkSoft,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                cat.name,
+                                style: TypeScale.caption(
+                                  cat.id == txn.categoryId ? t.accent : t.ink,
+                                ).copyWith(
+                                  fontWeight: cat.id == txn.categoryId ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -632,3 +896,4 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
     }
   }
 }
+

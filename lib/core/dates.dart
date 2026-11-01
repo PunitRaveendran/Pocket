@@ -1,4 +1,4 @@
-class LocalDate {
+class LocalDate implements Comparable<LocalDate> {
   const LocalDate(this.year, this.month, this.day);
 
   final int year;
@@ -11,8 +11,23 @@ class LocalDate {
   }
 
   factory LocalDate.parse(String ymd) {
-    final p = ymd.split('-');
-    return LocalDate(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+    final parsed = tryParse(ymd);
+    if (parsed == null) {
+      throw FormatException('Invalid date format: "$ymd" (expected YYYY-MM-DD)');
+    }
+    return parsed;
+  }
+
+  static LocalDate? tryParse(String? ymd) {
+    if (ymd == null) return null;
+    final p = ymd.trim().split('-');
+    if (p.length != 3) return null;
+    final y = int.tryParse(p[0]);
+    final m = int.tryParse(p[1]);
+    final d = int.tryParse(p[2]);
+    if (y == null || m == null || d == null) return null;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return LocalDate(y, m, d);
   }
 
   factory LocalDate.today() => LocalDate.fromDateTime(DateTime.now());
@@ -25,6 +40,17 @@ class LocalDate {
   LocalDate addDays(int n) => LocalDate.fromDateTime(dateTime.add(Duration(days: n)));
 
   int get weekday => dateTime.weekday;
+
+  @override
+  int compareTo(LocalDate other) {
+    if (year != other.year) return year.compareTo(other.year);
+    if (month != other.month) return month.compareTo(other.month);
+    return day.compareTo(other.day);
+  }
+
+  bool isBefore(LocalDate other) => compareTo(other) < 0;
+  bool isAfter(LocalDate other) => compareTo(other) > 0;
+  bool isSameDay(LocalDate other) => year == other.year && month == other.month && day == other.day;
 
   @override
   bool operator ==(Object other) =>
@@ -46,8 +72,7 @@ class PayCycle {
   int get lengthDays => endInclusive.dateTime.difference(start.dateTime).inDays + 1;
 
   bool contains(LocalDate d) {
-    final t = d.dateTime;
-    return !t.isBefore(start.dateTime) && !t.isAfter(endInclusive.dateTime);
+    return !d.isBefore(start) && !d.isAfter(endInclusive);
   }
 
   bool isLastDay(LocalDate d) => d == endInclusive;
@@ -90,7 +115,10 @@ class PayCycle {
     var w = 1;
 
     while (!currentStart.dateTime.isAfter(endInclusive.dateTime)) {
-      final daysToSunday = DateTime.sunday - currentStart.weekday;
+      var daysToSunday = DateTime.sunday - currentStart.weekday;
+      if (daysToSunday <= 0) {
+        daysToSunday += 7;
+      }
       final candidateEnd = currentStart.addDays(daysToSunday);
       final currentEnd = candidateEnd.dateTime.isAfter(endInclusive.dateTime)
           ? endInclusive
@@ -126,4 +154,3 @@ class CycleWeek {
     return !t.isBefore(start.dateTime) && !t.isAfter(end.dateTime);
   }
 }
-

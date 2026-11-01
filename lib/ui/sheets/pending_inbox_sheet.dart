@@ -1,0 +1,947 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import '../../core/money.dart';
+import '../../data/models.dart';
+import '../../l10n/copy.dart';
+import '../../state/ledger.dart';
+import '../../theme/app_theme.dart';
+import '../../theme/tokens.dart';
+import 'bill_split_sheet.dart';
+
+Future<void> showPendingInboxSheet(BuildContext context) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => const PendingInboxSheet(),
+  );
+}
+
+class PendingInboxSheet extends ConsumerStatefulWidget {
+  const PendingInboxSheet({super.key});
+
+  @override
+  ConsumerState<PendingInboxSheet> createState() => _PendingInboxSheetState();
+}
+
+class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
+  final Map<String, String> _selectedCategories = {};
+  final Map<String, TextEditingController> _whatForControllers = {};
+  final Map<String, String> _customMerchants = {};
+  bool _isSyncing = false;
+
+  @override
+  void dispose() {
+    for (final c in _whatForControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = TokenScope.of(context);
+    final ledger = ref.watch(ledgerProvider).valueOrNull;
+    final pendingItems = ledger?.pendingInbox ?? const [];
+    final categories = ledger?.categories ?? const [];
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Drag handle
+          Container(
+            margin: const EdgeInsets.only(top: 10, bottom: 4),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: t.rule,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Sheet Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: t.accentTint,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.mail_outline_rounded, size: 20, color: t.accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Slice Transactions',
+                        style: TypeScale.title(t.ink).copyWith(fontSize: 18),
+                      ),
+                      Text(
+                        pendingItems.isEmpty
+                            ? 'All caught up'
+                            : '${pendingItems.length} new transaction${pendingItems.length > 1 ? 's' : ''} to review',
+                        style: TypeScale.caption(t.inkSoft),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_isSyncing)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else ...[
+                    IconButton(
+                      icon: Icon(Icons.sync_rounded, color: t.inkSoft),
+                      tooltip: 'Sync now',
+                      onPressed: _syncTransactions,
+                    ),
+                  PopupMenuButton<String>(
+                    icon: Icon(Icons.more_vert_rounded, color: t.inkSoft),
+                    tooltip: 'More options',
+                    itemBuilder: (ctx) => [
+                      const PopupMenuItem(
+                        value: 'resync_clean',
+                        child: Row(
+                          children: [
+                            Icon(Icons.refresh_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('Clear pending & re-sync'),
+                          ],
+                        ),
+                      ),
+                    ],
+                    onSelected: (val) {
+                      if (val == 'resync_clean') {
+                        _resyncClean();
+                      }
+                    },
+                  ),
+                ],
+                IconButton(
+                  icon: Icon(Icons.close_rounded, color: t.inkSoft),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          // Content
+          Expanded(
+            child: pendingItems.isEmpty
+                ? _buildEmptyState(t)
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: pendingItems.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 16),
+                    itemBuilder: (ctx, i) {
+                      final item = pendingItems[i];
+                      return _buildTransactionCard(ctx, t, item, categories);
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(PaperTokens t) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: t.accentTint,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.done_all_rounded, size: 40, color: t.accent),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'All bank transactions reviewed! 🎉',
+              style: TypeScale.title(t.ink).copyWith(fontSize: 17),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'New transaction SMS or emails will automatically appear here.',
+              style: TypeScale.body(t.inkSoft),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: _syncTransactions,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Check for new transactions'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionCard(
+    BuildContext context,
+    PaperTokens t,
+    PendingTransaction item,
+    List<Category> categories,
+  ) {
+    final ledger = ref.watch(ledgerProvider).valueOrNull;
+
+    // Current selected category for this card (defaults to suggestedCategoryId, or first available)
+    final selectedCatId = _selectedCategories[item.id] ??
+        item.suggestedCategoryId ??
+        (categories.isNotEmpty ? categories.first.id : 'misc');
+
+    final hasMemoryMatch = item.suggestedCategoryId != null &&
+        item.suggestedCategoryId == selectedCatId;
+
+    final effectiveDisplayName = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final hasLearnedAlias = effectiveDisplayName.trim().toLowerCase() != item.merchant.trim().toLowerCase();
+
+    final dateFormatted = DateFormat('d MMM, h:mm a').format(item.occurredAt);
+
+    final noteController = _whatForControllers.putIfAbsent(
+      item.id,
+      () => TextEditingController(),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: t.paper,
+        borderRadius: BorderRadius.circular(Space.cardRadius),
+        border: Border.all(color: t.rule),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header: Merchant & Amount
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          item.direction == Direction.credit ? 'From: ' : 'To: ',
+                          style: TypeScale.title(t.inkSoft).copyWith(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Expanded(
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(4),
+                            onTap: () => _promptRenameMerchant(t, item, effectiveDisplayName),
+                            child: Text(
+                              effectiveDisplayName,
+                              style: TypeScale.title(t.ink).copyWith(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.edit_outlined, size: 16, color: t.inkSoft),
+                          tooltip: 'Rename sender / shop',
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _promptRenameMerchant(t, item, effectiveDisplayName),
+                        ),
+                      ],
+                    ),
+                    if (hasLearnedAlias) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(Icons.auto_awesome, size: 12, color: t.accent),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Learned alias for ${item.merchant}',
+                              style: TypeScale.caption(t.accent).copyWith(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Text(
+                          dateFormatted,
+                          style: TypeScale.caption(t.inkSoft),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: item.direction == Direction.credit ? t.accentTint : t.rule.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            item.rawSource.toLowerCase().contains('sms') ? 'SMS Alert' : 'Bank Email',
+                            style: TypeScale.caption(t.accent).copyWith(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${item.direction == Direction.debit ? '-' : '+'}${Money.formatPaise(item.amountPaise)}',
+                style: TypeScale.title(item.direction == Direction.debit ? t.ink : t.accent).copyWith(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Category assignment section
+          Row(
+            children: [
+              Text(
+                'Category',
+                style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+              ),
+              if (hasMemoryMatch) ...[
+                const SizedBox(width: 6),
+                Icon(Icons.auto_awesome, size: 14, color: t.accent),
+                const SizedBox(width: 2),
+                Text(
+                  'Auto-matched',
+                  style: TypeScale.caption(t.accent).copyWith(fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Category chips in single-line horizontal scroll
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                for (final cat in categories) ...[
+                  ChoiceChip(
+                    label: Text(cat.name),
+                    selected: cat.id == selectedCatId,
+                    selectedColor: t.accentTint,
+                    backgroundColor: t.card,
+                    labelStyle: TypeScale.caption(cat.id == selectedCatId ? t.accent : t.ink).copyWith(
+                      fontWeight: cat.id == selectedCatId ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(
+                        color: cat.id == selectedCatId ? t.accent : t.rule,
+                        width: cat.id == selectedCatId ? 1.5 : 1,
+                      ),
+                    ),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _selectedCategories[item.id] = cat.id;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'What was this for?',
+            style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          // "What was this for?" Input field
+          TextField(
+            controller: noteController,
+            style: TypeScale.body(t.ink).copyWith(fontSize: 14),
+            cursorColor: t.accent,
+            decoration: InputDecoration(
+              hintText: item.direction == Direction.credit
+                  ? 'e.g. Received from $effectiveDisplayName'
+                  : 'e.g. Paid to $effectiveDisplayName',
+              hintStyle: TypeScale.caption(t.inkSoft),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              filled: true,
+              fillColor: t.card,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                borderSide: BorderSide(color: t.rule),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                borderSide: BorderSide(color: t.rule),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                borderSide: BorderSide(color: t.accent),
+              ),
+              prefixIcon: Icon(Icons.edit_note_rounded, size: 20, color: t.inkSoft),
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Decision Actions: "Just Me" vs "Split with Friends" vs "Dismiss"
+          if (item.direction == Direction.credit)
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: FilledButton.icon(
+                    onPressed: () => _approveTopUp(item),
+                    icon: const Icon(Icons.savings_outlined, size: 16),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Add to Balance'),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: t.accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 3,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _settleSplitFromInbox(item),
+                    icon: Icon(Icons.people_outline_rounded, size: 16, color: t.accent),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Settle Split', style: TextStyle(color: t.accent)),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: t.accent),
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: Icon(Icons.close_rounded, size: 18, color: t.inkSoft),
+                  tooltip: 'Dismiss without recording',
+                  onPressed: () => _dismiss(item),
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                // Just Me Button
+                Expanded(
+                  flex: 3,
+                  child: FilledButton.icon(
+                    onPressed: () => _approveJustMe(item, selectedCatId),
+                    icon: const Icon(Icons.person_rounded, size: 16),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Just me'),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: t.ink,
+                      foregroundColor: t.paper,
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Split with Friends Button
+                Expanded(
+                  flex: 4,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _splitWithFriends(item, selectedCatId),
+                    icon: Icon(Icons.people_alt_outlined, size: 16, color: t.accent),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('Split with friends', style: TextStyle(color: t.accent)),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: t.accent),
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Space.controlRadius),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                // Dismiss Icon Button
+                IconButton(
+                  icon: Icon(Icons.close_rounded, size: 18, color: t.inkSoft),
+                  tooltip: 'Dismiss without recording',
+                  onPressed: () => _dismiss(item),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _promptRenameMerchant(
+    PaperTokens t,
+    PendingTransaction item,
+    String currentDisplayName,
+  ) async {
+    final controller = TextEditingController(text: currentDisplayName);
+    bool rememberForFuture = true;
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final friendSuggestions = (ledger?.allFriendSuggestions ?? []).take(6).toList();
+
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.edit_note_rounded, color: t.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Rename Sender / Shop', style: TypeScale.heading(t.ink)),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Original: "${item.merchant}"',
+                style: TypeScale.caption(t.inkSoft).copyWith(fontStyle: FontStyle.italic),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: TypeScale.body(t.ink),
+                decoration: InputDecoration(
+                  labelText: 'Familiar Name',
+                  hintText: 'e.g. Sneh, Canteen, Instamart',
+                  labelStyle: TypeScale.caption(t.inkSoft),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                    borderSide: BorderSide(color: t.rule),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(Space.controlRadius),
+                    borderSide: BorderSide(color: t.accent),
+                  ),
+                ),
+              ),
+              if (friendSuggestions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Quick friend suggestions:', style: TypeScale.caption(t.inkSoft)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final friend in friendSuggestions)
+                      ActionChip(
+                        label: Text(friend, style: TypeScale.caption(t.ink)),
+                        avatar: Icon(Icons.person_outline, size: 14, color: t.accent),
+                        backgroundColor: t.card,
+                        onPressed: () {
+                          setDialogState(() {
+                            controller.text = friend;
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Checkbox(
+                    value: rememberForFuture,
+                    activeColor: t.accent,
+                    onChanged: (val) {
+                      setDialogState(() {
+                        rememberForFuture = val ?? true;
+                      });
+                    },
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setDialogState(() {
+                          rememberForFuture = !rememberForFuture;
+                        });
+                      },
+                      child: Text(
+                        'Remember this name for future transactions',
+                        style: TypeScale.caption(t.ink),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isNotEmpty) {
+                  Navigator.pop(ctx, text);
+                }
+              },
+              style: FilledButton.styleFrom(backgroundColor: t.accent),
+              child: Text('Save', style: TypeScale.body(Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _customMerchants[item.id] = result;
+      });
+      if (rememberForFuture) {
+        await ref.read(ledgerProvider.notifier).saveMerchantAlias(
+              rawMerchant: item.merchant,
+              displayName: result,
+            );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved memory: "${item.merchant}" will now appear as "$result"!'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _approveTopUp(PendingTransaction item) async {
+    final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
+    final note = customWhatFor.isNotEmpty
+        ? customWhatFor
+        : (effectiveMerchant.isNotEmpty ? 'From $effectiveMerchant' : 'Stipend Top-Up via Slice');
+    try {
+      await ref.read(ledgerProvider.notifier).approveInboxTransaction(
+            item,
+            categoryId: 'income',
+            bucket: Bucket.daily,
+            merchant: effectiveMerchant,
+            note: note,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added ${Money.formatPaise(item.amountPaise)} on top of monthly balance!'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error approving top-up: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _settleSplitFromInbox(PendingTransaction item) async {
+    final t = TokenScope.of(context);
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final openSplits = (ledger?.friendSplits ?? [])
+        .where((s) => !s.isSettled && s.direction == SplitDirection.youAreOwed)
+        .toList();
+
+    FriendSplit? chosenSplit;
+    if (openSplits.isNotEmpty) {
+      final match = openSplits.cast<FriendSplit?>().firstWhere(
+            (s) {
+              final fName = s!.friendName.toLowerCase();
+              final raw = item.merchant.toLowerCase();
+              final resolved = resolvedMerchant.toLowerCase();
+              return raw.contains(fName) ||
+                  fName.contains(raw) ||
+                  resolved.contains(fName) ||
+                  fName.contains(resolved);
+            },
+            orElse: () => null,
+          );
+      if (match != null) {
+        chosenSplit = match;
+      }
+    }
+
+    final selected = await showDialog<FriendSplit?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Settle Friend Split', style: TypeScale.heading(t.ink)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Received ${Money.formatPaise(item.amountPaise)} from $resolvedMerchant.\nSelect which friend split to clear (won\'t be added to daily spending balance):',
+              style: TypeScale.caption(t.inkSoft),
+            ),
+            const SizedBox(height: Space.x3),
+            if (openSplits.isEmpty)
+              Text('No open friend splits found.', style: TypeScale.body(t.inkSoft))
+            else
+              for (final s in openSplits)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.person_outline, color: t.accent),
+                  title: Text(s.friendName, style: TypeScale.body(t.ink)),
+                  subtitle: Text(s.note.isNotEmpty ? s.note : 'Split share', style: TypeScale.caption(t.inkSoft)),
+                  trailing: Text(Money.formatPaise(s.amountPaise), style: TypeScale.title(t.ink)),
+                  onTap: () => Navigator.pop(ctx, s),
+                ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
+          ),
+          if (chosenSplit != null)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, chosenSplit),
+              child: Text('Settle with ${chosenSplit.friendName}', style: TypeScale.body(t.accent)),
+            ),
+        ],
+      ),
+    );
+
+    if (selected != null) {
+      await ref.read(ledgerProvider.notifier).settleFriendSplit(selected.id, creditDaily: false);
+      await ref.read(ledgerProvider.notifier).dismissInboxTransaction(item.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cleared split with ${selected.friendName}! Balance kept intact.'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _approveJustMe(PendingTransaction item, String categoryId) async {
+    final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
+    final note = customWhatFor.isNotEmpty
+        ? (resolvedMerchant != customWhatFor ? 'Slice · $resolvedMerchant' : 'Slice UPI')
+        : (item.direction == Direction.credit ? 'From $resolvedMerchant' : 'Slice · $resolvedMerchant');
+
+    try {
+      await ref.read(ledgerProvider.notifier).approveInboxTransaction(
+            item,
+            categoryId: categoryId,
+            bucket: Bucket.daily,
+            merchant: effectiveMerchant,
+            note: note,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Recorded ₹${item.amountPaise ~/ 100} for $effectiveMerchant'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error approving transaction: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _splitWithFriends(PendingTransaction item, String categoryId) async {
+    final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
+    final ledger = ref.read(ledgerProvider).valueOrNull;
+    final resolvedMerchant = _customMerchants[item.id] ??
+        ledger?.resolveMerchantName(item.merchant) ??
+        item.merchant;
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
+    if (effectiveMerchant.isNotEmpty && effectiveMerchant.toLowerCase() != item.merchant.toLowerCase()) {
+      await ref.read(ledgerProvider.notifier).saveMerchantAlias(
+            rawMerchant: item.merchant,
+            displayName: effectiveMerchant,
+          );
+    }
+    if (!mounted) return;
+    await showBillSplitSheet(
+      context,
+      totalAmountPaise: item.amountPaise,
+      merchant: effectiveMerchant,
+      initialDate: item.localDate,
+      initialCategoryId: categoryId,
+      pendingInboxId: item.id,
+    );
+  }
+
+  Future<void> _dismiss(PendingTransaction item) async {
+    await ref.read(ledgerProvider.notifier).dismissInboxTransaction(item.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Transaction dismissed'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncTransactions() async {
+    setState(() => _isSyncing = true);
+    try {
+      final s = ref.read(ledgerProvider).valueOrNull?.settings;
+      var smsCount = 0;
+      var emailCount = 0;
+      String? error;
+
+      if (s?.smsSyncEnabled == true) {
+        final smsRes = await ref.read(ledgerProvider.notifier).syncSms();
+        if (smsRes.success) {
+          smsCount = smsRes.newCount;
+        } else {
+          error = smsRes.errorMessage;
+        }
+      }
+      if (s?.emailSyncEnabled == true) {
+        final emailRes = await ref.read(ledgerProvider.notifier).syncSliceEmails();
+        if (emailRes.success) {
+          emailCount = emailRes.newCount;
+        } else {
+          error = error ?? emailRes.errorMessage;
+        }
+      }
+
+      if (mounted) {
+        final total = smsCount + emailCount;
+        if (total > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Found $total new transaction${total > 1 ? 's' : ''}!'),
+            ),
+          );
+        } else if (error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(error),
+              backgroundColor: Colors.red.shade800,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Up to date. No new bank transactions found.'),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  Future<void> _resyncClean() async {
+    setState(() => _isSyncing = true);
+    final result = await ref.read(ledgerProvider.notifier).clearPendingAndResync();
+    if (mounted) {
+      setState(() => _isSyncing = false);
+      if (result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.newCount > 0
+                  ? 'Re-synced ${result.newCount} transactions with latest parser!'
+                  : 'Re-sync complete. No new transactions found.',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.errorMessage ?? 'Re-sync failed'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      }
+    }
+  }
+}

@@ -1,22 +1,29 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/dates.dart';
+import '../core/keystore_service.dart';
+import '../core/money.dart';
 import 'database.dart';
 import 'models.dart';
 
 const _uuid = Uuid();
 
 class PocketRepository {
-  PocketRepository(this._db);
+  PocketRepository(this._db, {this.inMemory = false});
   final PocketDatabase _db;
+  final bool inMemory;
+
+  bool get _isInMemory => kIsWeb || inMemory;
 
   static const systemCategories = [
     Category(id: 'food', name: 'Food', icon: 'food', isSystem: true, sortOrder: 0),
     Category(id: 'snacks', name: 'Snacks', icon: 'snacks', isSystem: true, sortOrder: 1),
     Category(id: 'study', name: 'Study', icon: 'study', isSystem: true, sortOrder: 2),
     Category(id: 'misc', name: 'Misc', icon: 'misc', isSystem: true, sortOrder: 3),
+    Category(id: 'income', name: 'Top-Up', icon: 'savings', isSystem: true, sortOrder: 4),
   ];
 
   // In-memory backing for web browser preview
@@ -109,29 +116,96 @@ class PocketRepository {
     ),
   ];
 
+  static final List<String> _webFriends = ['Surya', 'Punit', 'Sneh', 'Rahul'];
+  static final List<PendingTransaction> _webPendingInbox = [];
+  static final Map<String, String> _webMerchantMemory = {};
+  static final Map<String, String> _webMerchantAliases = {};
+
   Future<Ledger> load() async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       return Ledger(
         settings: _webSettings.copyWith(fixedDeductions: List.of(_webDeductions)),
         categories: List.of(_webCategories),
-        transactions: List.of(_webTxns),
+        transactions: List.of(
+          _webTxns.where((t) => t.merchant != 'Balance Adjustment' && t.merchant != 'Manual Balance Adjustment'),
+        ),
         outings: List.of(_webOutings),
         friendSplits: List.of(_webSplits),
+        pendingInbox: List.of(_webPendingInbox.where((p) => p.status == InboxStatus.pending)),
+        savedFriends: List.of(_webFriends),
+        merchantAliases: Map.of(_webMerchantAliases),
       );
     }
 
     final db = await _db.db;
     await _ensureSeed(db);
 
-    final dedRows = await db.query(
-      'fixed_deductions',
-      where: 'deleted_at IS NULL',
-      orderBy: 'title ASC',
-    );
-    final deductions = dedRows.map(_deductionFromRow).toList();
+    final results = await Future.wait([
+      db.query(
+        'fixed_deductions',
+        where: 'deleted_at IS NULL',
+        orderBy: 'title ASC',
+      ),
+      db.query('settings'),
+      db.query('categories', orderBy: 'sort_order ASC'),
+      db.query(
+        'outings',
+        where: 'deleted_at IS NULL',
+        orderBy: 'local_date DESC, title ASC',
+      ),
+      db.query(
+        'txns',
+        where: 'deleted_at IS NULL',
+        orderBy: 'occurred_at DESC',
+      ),
+      db.query(
+        'friend_splits',
+        where: 'deleted_at IS NULL',
+        orderBy: 'occurred_at DESC',
+      ),
+      db.query(
+        'pending_inbox',
+        where: 'status = ?',
+        whereArgs: ['pending'],
+        orderBy: 'occurred_at DESC',
+      ),
+      db.query('friends', orderBy: 'name COLLATE NOCASE ASC'),
+      db.query('merchant_aliases', orderBy: 'last_used_at DESC'),
+    ]);
 
-    final settingRows = await db.query('settings');
+    final dedRows = results[0];
+    final settingRows = results[1];
+    final catRows = results[2];
+    final outingRows = results[3];
+    final txnRows = results[4];
+    final splitRows = results[5];
+    final inboxRows = results[6];
+    final friendRows = results[7];
+    final aliasRows = results.length > 8 ? results[8] : const <Map<String, Object?>>[];
+
+    final deductions = dedRows.map(_deductionFromRow).toList();
     final map = {for (final r in settingRows) r['key'] as String: r['value'] as String};
+    final aliasMap = {
+      for (final r in aliasRows)
+        (r['raw_merchant_clean'] as String? ?? ''): (r['display_name'] as String? ?? ''),
+    }..remove('');
+
+    String appPassword = '';
+    final encPassword = map['email_sync_app_password_enc'];
+    if (encPassword != null && encPassword.isNotEmpty) {
+      appPassword = await KeystoreService.instance.decrypt(encPassword);
+    } else if (map['email_sync_app_password'] != null) {
+      appPassword = map['email_sync_app_password']!;
+    }
+
+    Map<String, int> cycleAdjustments = {};
+    if (map['cycle_adjustments'] != null && map['cycle_adjustments']!.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(map['cycle_adjustments']!) as Map<String, dynamic>;
+        cycleAdjustments = decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+      } catch (_) {}
+    }
+
     final settings = Settings(
       stipendPaise: int.parse(map['stipend_paise'] ?? '${Settings.defaults.stipendPaise}'),
       cycleStartDay: int.parse(map['cycle_start_day'] ?? '${Settings.defaults.cycleStartDay}'),
@@ -143,10 +217,20 @@ class PocketRepository {
           : LeftoverPolicy.dynamicDistribute,
       biometricEnabled: map['biometric_enabled'] == '1',
       fixedDeductions: deductions,
-      isVacationMode: map['is_vacation_mode'] == '1',
+      appThemeMode: map['app_theme_mode'] == 'dark'
+          ? AppThemeMode.dark
+          : (map['app_theme_mode'] == 'light' ? AppThemeMode.light : AppThemeMode.system),
+      rolloverUnspent: map['rollover_unspent'] != '0',
+      cycleAdjustments: cycleAdjustments,
+      emailSyncAddress: map['email_sync_address'] ?? '',
+      emailSyncAppPassword: appPassword,
+      emailSyncSender: map['email_sync_sender'] ?? 'noreply@slice.bank.in',
+      emailSyncEnabled: map['email_sync_enabled'] == '1',
+      emailSyncLastSyncedMs: int.tryParse(map['email_sync_last_synced_ms'] ?? ''),
+      smsSyncEnabled: map['sms_sync_enabled'] == '1',
+      smsSyncLastSyncedMs: int.tryParse(map['sms_sync_last_synced_ms'] ?? ''),
     );
 
-    final catRows = await db.query('categories', orderBy: 'sort_order ASC');
     final categories = catRows
         .map(
           (r) => Category(
@@ -159,11 +243,6 @@ class PocketRepository {
         )
         .toList();
 
-    final outingRows = await db.query(
-      'outings',
-      where: 'deleted_at IS NULL',
-      orderBy: 'local_date DESC, title ASC',
-    );
     final outings = outingRows
         .map(
           (r) => Outing(
@@ -175,19 +254,13 @@ class PocketRepository {
         )
         .toList();
 
-    final txnRows = await db.query(
-      'txns',
-      where: 'deleted_at IS NULL',
-      orderBy: 'occurred_at DESC',
-    );
-    final txns = txnRows.map(_txnFromRow).toList();
-
-    final splitRows = await db.query(
-      'friend_splits',
-      where: 'deleted_at IS NULL',
-      orderBy: 'occurred_at DESC',
-    );
+    final txns = txnRows
+        .map(_txnFromRow)
+        .where((t) => t.merchant != 'Balance Adjustment' && t.merchant != 'Manual Balance Adjustment')
+        .toList();
     final splits = splitRows.map(_splitFromRow).toList();
+    final inbox = inboxRows.map(_pendingFromRow).toList();
+    final savedFriends = friendRows.map((r) => r['name'] as String).toList();
 
     return Ledger(
       settings: settings,
@@ -195,11 +268,14 @@ class PocketRepository {
       transactions: txns,
       outings: outings,
       friendSplits: splits,
+      pendingInbox: inbox,
+      savedFriends: savedFriends,
+      merchantAliases: aliasMap,
     );
   }
 
   Future<void> saveSettings(Settings s) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webSettings = s;
       return;
     }
@@ -214,7 +290,27 @@ class PocketRepository {
     await put('pacing_mode', s.pacingMode.name);
     await put('leftover_policy', s.leftoverPolicy.name);
     await put('biometric_enabled', s.biometricEnabled ? '1' : '0');
-    await put('is_vacation_mode', s.isVacationMode ? '1' : '0');
+    await put('app_theme_mode', s.appThemeMode.name);
+    await put('rollover_unspent', s.rolloverUnspent ? '1' : '0');
+    await put('cycle_adjustments', jsonEncode(s.cycleAdjustments));
+    await put('email_sync_address', s.emailSyncAddress);
+    if (s.emailSyncAppPassword.isNotEmpty) {
+      final encrypted = await KeystoreService.instance.encrypt(s.emailSyncAppPassword);
+      await put('email_sync_app_password_enc', encrypted);
+      await db.delete('settings', where: 'key = ?', whereArgs: ['email_sync_app_password']);
+    } else {
+      await put('email_sync_app_password_enc', '');
+      await db.delete('settings', where: 'key = ?', whereArgs: ['email_sync_app_password']);
+    }
+    await put('email_sync_sender', s.emailSyncSender);
+    await put('email_sync_enabled', s.emailSyncEnabled ? '1' : '0');
+    if (s.emailSyncLastSyncedMs != null) {
+      await put('email_sync_last_synced_ms', '${s.emailSyncLastSyncedMs}');
+    }
+    await put('sms_sync_enabled', s.smsSyncEnabled ? '1' : '0');
+    if (s.smsSyncLastSyncedMs != null) {
+      await put('sms_sync_last_synced_ms', '${s.smsSyncLastSyncedMs}');
+    }
   }
 
   Future<void> addCategory(String name, {String icon = 'custom'}) async {
@@ -226,7 +322,7 @@ class PocketRepository {
       sortOrder: _webCategories.length,
     );
 
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webCategories.add(cat);
       return;
     }
@@ -246,7 +342,7 @@ class PocketRepository {
   }
 
   Future<void> deleteCategory(String id) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       for (var i = 0; i < _webTxns.length; i++) {
         if (_webTxns[i].categoryId == id) {
           final old = _webTxns[i];
@@ -280,6 +376,74 @@ class PocketRepository {
     });
   }
 
+  Future<void> reorderCategories(List<String> orderedIds) async {
+    if (_isInMemory) {
+      final map = {for (var i = 0; i < orderedIds.length; i++) orderedIds[i]: i};
+      _webCategories.sort((a, b) => (map[a.id] ?? 999).compareTo(map[b.id] ?? 999));
+      for (var i = 0; i < _webCategories.length; i++) {
+        final c = _webCategories[i];
+        _webCategories[i] = Category(
+          id: c.id,
+          name: c.name,
+          icon: c.icon,
+          isSystem: c.isSystem,
+          sortOrder: i,
+        );
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    final batch = db.batch();
+    for (var i = 0; i < orderedIds.length; i++) {
+      batch.update(
+        'categories',
+        {'sort_order': i},
+        where: 'id = ?',
+        whereArgs: [orderedIds[i]],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> addFriend(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    if (_isInMemory) {
+      if (!_webFriends.any((f) => f.toLowerCase() == trimmed.toLowerCase())) {
+        _webFriends.add(trimmed);
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.insert(
+      'friends',
+      {
+        'id': _uuid.v4(),
+        'name': trimmed,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<void> deleteFriend(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    if (_isInMemory) {
+      _webFriends.removeWhere((f) => f.toLowerCase() == trimmed.toLowerCase());
+      return;
+    }
+
+    final db = await _db.db;
+    await db.delete(
+      'friends',
+      where: 'name = ? COLLATE NOCASE',
+      whereArgs: [trimmed],
+    );
+  }
+
   Future<Txn> addTxn({
     required int amountPaise,
     required Direction direction,
@@ -304,7 +468,7 @@ class PocketRepository {
       note: note.trim(),
     );
 
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webTxns.insert(0, txn);
       return txn;
     }
@@ -315,7 +479,7 @@ class PocketRepository {
   }
 
   Future<void> updateTxn(Txn txn) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       final index = _webTxns.indexWhere((t) => t.id == txn.id);
       if (index != -1) _webTxns[index] = txn;
       return;
@@ -326,7 +490,7 @@ class PocketRepository {
   }
 
   Future<void> softDeleteTxn(String id) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webTxns.removeWhere((t) => t.id == id);
       return;
     }
@@ -337,6 +501,23 @@ class PocketRepository {
       {'deleted_at': DateTime.now().millisecondsSinceEpoch},
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<void> restoreTxn(Txn txn) async {
+    if (_isInMemory) {
+      if (!_webTxns.any((t) => t.id == txn.id)) {
+        _webTxns.insert(0, txn);
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.update(
+      'txns',
+      {'deleted_at': null},
+      where: 'id = ?',
+      whereArgs: [txn.id],
     );
   }
 
@@ -352,7 +533,7 @@ class PocketRepository {
       note: note.trim(),
     );
 
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webOutings.insert(0, outing);
       return outing;
     }
@@ -368,7 +549,7 @@ class PocketRepository {
   }
 
   Future<void> softDeleteOuting(String id) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webOutings.removeWhere((o) => o.id == id);
       _webTxns.removeWhere((t) => t.outingId == id);
       return;
@@ -383,7 +564,7 @@ class PocketRepository {
   }
 
   Future<void> updateOuting(Outing outing) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       final index = _webOutings.indexWhere((o) => o.id == outing.id);
       if (index != -1) _webOutings[index] = outing;
       return;
@@ -402,6 +583,153 @@ class PocketRepository {
     );
   }
 
+  Future<Outing> addOutingWithSpend({
+    required String title,
+    required int amountPaise,
+    required LocalDate date,
+    String itemTitle = '',
+    String note = '',
+    String? existingOutingId,
+  }) async {
+    if (_isInMemory) {
+      final outingId = existingOutingId ?? (await addOuting(title: title, localDate: date, note: note)).id;
+      await addTxn(
+        amountPaise: amountPaise,
+        direction: Direction.debit,
+        localDate: date,
+        merchant: itemTitle.isNotEmpty ? itemTitle : title,
+        categoryId: 'misc',
+        bucket: Bucket.outing,
+        outingId: outingId,
+        note: note,
+      );
+      return _webOutings.firstWhere((o) => o.id == outingId);
+    }
+
+    final db = await _db.db;
+    return await db.transaction((txn) async {
+      final String outingId;
+      Outing outing;
+      if (existingOutingId != null) {
+        outingId = existingOutingId;
+        final rows = await txn.query('outings', where: 'id = ?', whereArgs: [outingId]);
+        outing = rows.isNotEmpty
+            ? Outing(
+                id: rows.first['id'] as String,
+                title: rows.first['title'] as String,
+                localDate: LocalDate.parse(rows.first['local_date'] as String),
+                note: rows.first['note'] as String,
+              )
+            : Outing(id: outingId, title: title.trim(), localDate: date, note: note.trim());
+      } else {
+        outing = Outing(id: _uuid.v4(), title: title.trim(), localDate: date, note: note.trim());
+        await txn.insert('outings', {
+          'id': outing.id,
+          'title': outing.title,
+          'local_date': outing.localDate.ymd,
+          'note': outing.note,
+        });
+        outingId = outing.id;
+      }
+
+      final txnObj = Txn(
+        id: _uuid.v4(),
+        amountPaise: amountPaise,
+        direction: Direction.debit,
+        occurredAtMs: DateTime.now().millisecondsSinceEpoch,
+        localDate: date,
+        merchant: itemTitle.isNotEmpty ? itemTitle.trim() : title.trim(),
+        categoryId: 'misc',
+        bucket: Bucket.outing,
+        outingId: outingId,
+        note: note.trim(),
+      );
+      await txn.insert('txns', _txnToRow(txnObj));
+      return outing;
+    });
+  }
+
+  Future<void> borrowFromTomorrow({
+    required int amountPaise,
+    required LocalDate today,
+  }) async {
+    final tomorrow = today.addDays(1);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final creditTxn = Txn(
+      id: _uuid.v4(),
+      amountPaise: amountPaise,
+      direction: Direction.credit,
+      occurredAtMs: now,
+      localDate: today,
+      merchant: "Borrowed from tomorrow's allowance",
+      categoryId: 'misc',
+      bucket: Bucket.daily,
+      note: 'Overspend recovery',
+    );
+    final debitTxn = Txn(
+      id: _uuid.v4(),
+      amountPaise: amountPaise,
+      direction: Direction.debit,
+      occurredAtMs: now + 1,
+      localDate: tomorrow,
+      merchant: 'Carried forward from yesterday',
+      categoryId: 'misc',
+      bucket: Bucket.daily,
+      note: 'Overspend recovery',
+    );
+
+    if (_isInMemory) {
+      _webTxns.insert(0, creditTxn);
+      _webTxns.insert(0, debitTxn);
+      return;
+    }
+
+    final db = await _db.db;
+    await db.transaction((txn) async {
+      await txn.insert('txns', _txnToRow(creditTxn));
+      await txn.insert('txns', _txnToRow(debitTxn));
+    });
+  }
+
+  Future<void> reclassifyTxnAsOuting(Txn txn, {String outingTitle = 'Overspend Splurge'}) async {
+    final outing = Outing(
+      id: _uuid.v4(),
+      title: outingTitle.trim(),
+      localDate: txn.localDate,
+      note: 'Reclassified from daily (${txn.merchant})',
+    );
+    final updatedTxn = Txn(
+      id: txn.id,
+      amountPaise: txn.amountPaise,
+      direction: txn.direction,
+      occurredAtMs: txn.occurredAtMs,
+      localDate: txn.localDate,
+      merchant: txn.merchant,
+      categoryId: txn.categoryId,
+      bucket: Bucket.outing,
+      outingId: outing.id,
+      note: txn.note,
+    );
+
+    if (_isInMemory) {
+      _webOutings.insert(0, outing);
+      final idx = _webTxns.indexWhere((t) => t.id == txn.id);
+      if (idx != -1) _webTxns[idx] = updatedTxn;
+      return;
+    }
+
+    final db = await _db.db;
+    await db.transaction((txnDb) async {
+      await txnDb.insert('outings', {
+        'id': outing.id,
+        'title': outing.title,
+        'local_date': outing.localDate.ymd,
+        'note': outing.note,
+      });
+      await txnDb.update('txns', _txnToRow(updatedTxn), where: 'id = ?', whereArgs: [txn.id]);
+    });
+  }
+
   Future<FriendSplit> addFriendSplit({
     required String friendName,
     required int amountPaise,
@@ -409,30 +737,55 @@ class PocketRepository {
     required LocalDate localDate,
     String note = '',
     DateTime? occurredAt,
+    bool deductFromDaily = false,
   }) async {
+    final now = (occurredAt ?? DateTime.now()).millisecondsSinceEpoch;
     final split = FriendSplit(
       id: _uuid.v4(),
       friendName: friendName.trim(),
       amountPaise: amountPaise,
       direction: direction,
-      occurredAtMs: (occurredAt ?? DateTime.now()).millisecondsSinceEpoch,
+      occurredAtMs: now,
       localDate: localDate,
       note: note.trim(),
       isSettled: false,
     );
 
-    if (kIsWeb) {
+    Txn? dailyTxn;
+    if (deductFromDaily && direction == SplitDirection.youAreOwed) {
+      dailyTxn = Txn(
+        id: _uuid.v4(),
+        amountPaise: amountPaise,
+        direction: Direction.debit,
+        occurredAtMs: now,
+        localDate: localDate,
+        merchant: 'Lent to ${friendName.trim()}',
+        categoryId: 'misc',
+        bucket: Bucket.daily,
+        note: note.isNotEmpty ? 'Split: $note' : 'Lent to ${friendName.trim()}',
+      );
+    }
+
+    if (_isInMemory) {
       _webSplits.insert(0, split);
+      if (dailyTxn != null) _webTxns.insert(0, dailyTxn);
       return split;
     }
 
     final db = await _db.db;
-    await db.insert('friend_splits', _splitToRow(split));
+    if (dailyTxn != null) {
+      await db.transaction((txn) async {
+        await txn.insert('friend_splits', _splitToRow(split));
+        await txn.insert('txns', _txnToRow(dailyTxn!));
+      });
+    } else {
+      await db.insert('friend_splits', _splitToRow(split));
+    }
     return split;
   }
 
   Future<void> updateFriendSplit(FriendSplit split) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       final idx = _webSplits.indexWhere((s) => s.id == split.id);
       if (idx != -1) _webSplits[idx] = split;
       return;
@@ -444,7 +797,7 @@ class PocketRepository {
 
   Future<void> settleFriendSplit(String id, {bool creditDaily = false}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (kIsWeb) {
+    if (_isInMemory) {
       final idx = _webSplits.indexWhere((s) => s.id == id);
       if (idx != -1) {
         final old = _webSplits[idx];
@@ -494,7 +847,7 @@ class PocketRepository {
   }
 
   Future<void> softDeleteFriendSplit(String id) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webSplits.removeWhere((s) => s.id == id);
       return;
     }
@@ -508,8 +861,94 @@ class PocketRepository {
     );
   }
 
+  Future<void> splitBill({
+    required int totalAmountPaise,
+    required int mySharePaise,
+    required List<({String friendName, int amountPaise})> friends,
+    required LocalDate date,
+    required String categoryId,
+    required String merchant,
+    String note = '',
+    String? pendingInboxId,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    Txn? userTxn;
+    if (mySharePaise > 0) {
+      userTxn = Txn(
+        id: _uuid.v4(),
+        amountPaise: mySharePaise,
+        direction: Direction.debit,
+        occurredAtMs: now,
+        localDate: date,
+        merchant: merchant.isNotEmpty ? merchant : 'Bill Split',
+        categoryId: categoryId.isNotEmpty ? categoryId : 'food',
+        bucket: Bucket.daily,
+        note: note.isNotEmpty
+            ? '$note (My share of ${Money.formatPaise(totalAmountPaise)})'
+            : 'My share of ${Money.formatPaise(totalAmountPaise)}',
+      );
+    }
+
+    final newSplits = <FriendSplit>[];
+    for (var i = 0; i < friends.length; i++) {
+      final f = friends[i];
+      if (f.amountPaise <= 0 || f.friendName.trim().isEmpty) continue;
+      newSplits.add(
+        FriendSplit(
+          id: _uuid.v4(),
+          friendName: f.friendName.trim(),
+          amountPaise: f.amountPaise,
+          direction: SplitDirection.youAreOwed,
+          occurredAtMs: now + i + 1,
+          localDate: date,
+          note: merchant.isNotEmpty ? '$merchant split' : (note.isNotEmpty ? note : 'Bill split'),
+          isSettled: false,
+        ),
+      );
+    }
+
+    if (_isInMemory) {
+      if (userTxn != null) _webTxns.insert(0, userTxn);
+      for (final s in newSplits) {
+        _webSplits.insert(0, s);
+      }
+      if (pendingInboxId != null) {
+        final idx = _webPendingInbox.indexWhere((p) => p.id == pendingInboxId);
+        if (idx != -1) {
+          _webPendingInbox[idx] = _webPendingInbox[idx].copyWith(status: InboxStatus.approved);
+        }
+      }
+      if (merchant.isNotEmpty && categoryId.isNotEmpty) {
+        await recordMerchantCategory(merchant, categoryId);
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.transaction((txn) async {
+      if (userTxn != null) {
+        await txn.insert('txns', _txnToRow(userTxn));
+      }
+      for (final s in newSplits) {
+        await txn.insert('friend_splits', _splitToRow(s));
+      }
+      if (pendingInboxId != null) {
+        await txn.update(
+          'pending_inbox',
+          {'status': 'approved'},
+          where: 'id = ?',
+          whereArgs: [pendingInboxId],
+        );
+      }
+    });
+
+    if (merchant.isNotEmpty && categoryId.isNotEmpty) {
+      await recordMerchantCategory(merchant, categoryId);
+    }
+  }
+
   Future<void> wipe() async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webSettings = Settings.defaults;
       _webCategories
         ..clear()
@@ -523,6 +962,185 @@ class PocketRepository {
     await _db.wipe();
   }
 
+  /// Compacts and defragments database pages and re-optimizes query planner statistics.
+  Future<void> optimizeDatabase() async {
+    if (_isInMemory) return;
+    await _db.optimize();
+  }
+
+  /// Checks the on-disk storage size of the local database files in bytes.
+  Future<int> getStorageSizeBytes() async {
+    if (_isInMemory) return 0;
+    return await _db.getDatabaseSizeBytes();
+  }
+
+  /// Permanently removes soft-deleted records older than [olderThanDays] and vacuums the database.
+  Future<int> purgeDeletedRecords({int olderThanDays = 30}) async {
+    if (_isInMemory) {
+      return 0;
+    }
+    return await _db.purgeDeletedRecords(olderThanDays: olderThanDays);
+  }
+
+  /// Verifies the SQLite database integrity.
+  Future<String> checkIntegrity() async {
+    if (_isInMemory) return 'ok';
+    return await _db.checkIntegrity();
+  }
+
+  /// Atomically restores a full backup snapshot within a single SQLite transaction.
+  /// If any error occurs during restoration, all changes are automatically rolled back.
+  Future<bool> restoreSnapshot({
+    required Settings settings,
+    required List<Category> customCategories,
+    required List<FixedDeduction> fixedDeductions,
+    required List<Outing> outings,
+    required List<Txn> transactions,
+    required List<FriendSplit> friendSplits,
+    List<String> savedFriends = const [],
+    Map<String, int> systemCategorySortOrders = const {},
+  }) async {
+    if (_isInMemory) {
+      _webSettings = settings;
+      final sysCategories = systemCategories.map((c) {
+        final order = systemCategorySortOrders[c.id];
+        return Category(
+          id: c.id,
+          name: c.name,
+          icon: c.icon,
+          isSystem: c.isSystem,
+          sortOrder: order ?? c.sortOrder,
+        );
+      }).toList();
+      _webCategories
+        ..clear()
+        ..addAll(sysCategories)
+        ..addAll(customCategories)
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      _webDeductions
+        ..clear()
+        ..addAll(fixedDeductions);
+      _webOutings
+        ..clear()
+        ..addAll(outings);
+      _webTxns
+        ..clear()
+        ..addAll(transactions);
+      _webSplits
+        ..clear()
+        ..addAll(friendSplits);
+      final allFriends = <String>{
+        ...savedFriends,
+        ...friendSplits.map((s) => s.friendName.trim()).where((n) => n.isNotEmpty),
+      };
+      _webFriends
+        ..clear()
+        ..addAll(allFriends.isNotEmpty ? allFriends : ['Surya', 'Punit', 'Sneh', 'Rahul']);
+      return true;
+    }
+
+    final db = await _db.db;
+    try {
+      await db.transaction((txn) async {
+        // 1. Wipe existing tables cleanly
+        await txn.delete('fixed_deductions');
+        await txn.delete('friend_splits');
+        await txn.delete('friends');
+        await txn.delete('txns');
+        await txn.delete('outings');
+        await txn.delete('categories');
+        await txn.delete('settings');
+
+        // 2. Re-seed system categories with restored sort orders
+        for (final c in systemCategories) {
+          final order = systemCategorySortOrders[c.id] ?? c.sortOrder;
+          await txn.insert('categories', {
+            'id': c.id,
+            'name': c.name,
+            'icon': c.icon,
+            'is_system': 1,
+            'sort_order': order,
+          });
+        }
+
+        // 3. Re-insert settings
+        Future<void> put(String k, String v) =>
+            txn.insert('settings', {'key': k, 'value': v}, conflictAlgorithm: ConflictAlgorithm.replace);
+        await put('stipend_paise', '${settings.stipendPaise}');
+        await put('cycle_start_day', '${settings.cycleStartDay}');
+        await put('hide_amounts', settings.hideAmounts ? '1' : '0');
+        await put('onboarded', settings.onboarded ? '1' : '0');
+        await put('pacing_mode', settings.pacingMode.name);
+        await put('leftover_policy', settings.leftoverPolicy.name);
+        await put('biometric_enabled', settings.biometricEnabled ? '1' : '0');
+        await put('app_theme_mode', settings.appThemeMode.name);
+        await put('rollover_unspent', settings.rolloverUnspent ? '1' : '0');
+        if (settings.cycleAdjustments.isNotEmpty) {
+          await put('cycle_adjustments', jsonEncode(settings.cycleAdjustments));
+        }
+
+        // 4. Re-insert custom categories
+        for (final c in customCategories) {
+          await txn.insert('categories', {
+            'id': c.id,
+            'name': c.name,
+            'icon': c.icon,
+            'is_system': 0,
+            'sort_order': c.sortOrder,
+          });
+        }
+
+        // 5. Batch insert fixed deductions
+        for (final d in fixedDeductions) {
+          await txn.insert('fixed_deductions', _deductionToRow(d));
+        }
+
+        // 6. Batch insert outings
+        for (final o in outings) {
+          await txn.insert('outings', {
+            'id': o.id,
+            'title': o.title,
+            'local_date': o.localDate.ymd,
+            'note': o.note,
+          });
+        }
+
+        // 7. Batch insert transactions
+        for (final t in transactions) {
+          await txn.insert('txns', _txnToRow(t));
+        }
+
+        // 8. Batch insert friend splits
+        for (final s in friendSplits) {
+          await txn.insert('friend_splits', _splitToRow(s));
+        }
+
+        // 9. Batch insert saved friends (combining explicit saved friends + splits friend names)
+        final allFriends = <String>{
+          ...savedFriends,
+          ...friendSplits.map((s) => s.friendName.trim()).where((n) => n.isNotEmpty),
+        };
+        final friendsToSeed = allFriends.isNotEmpty ? allFriends : ['Surya', 'Punit', 'Sneh', 'Rahul'];
+        for (final friend in friendsToSeed) {
+          await txn.insert(
+            'friends',
+            {
+              'id': _uuid.v4(),
+              'name': friend,
+              'created_at': DateTime.now().millisecondsSinceEpoch,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+      });
+
+      await _db.optimize();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _ensureSeed(dynamic db) async {
     final count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM categories')) ?? 0;
     if (count == 0) {
@@ -534,6 +1152,21 @@ class PocketRepository {
           'is_system': 1,
           'sort_order': c.sortOrder,
         });
+      }
+    }
+
+    final friendCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM friends')) ?? 0;
+    if (friendCount == 0) {
+      for (final name in ['Surya', 'Punit', 'Sneh', 'Rahul']) {
+        await db.insert(
+          'friends',
+          {
+            'id': _uuid.v4(),
+            'name': name,
+            'created_at': DateTime.now().millisecondsSinceEpoch,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
       }
     }
   }
@@ -592,7 +1225,7 @@ class PocketRepository {
       isEnabled: isEnabled,
     );
 
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webDeductions.add(d);
       return d;
     }
@@ -603,7 +1236,7 @@ class PocketRepository {
   }
 
   Future<void> updateFixedDeduction(FixedDeduction d) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       final idx = _webDeductions.indexWhere((x) => x.id == d.id);
       if (idx != -1) _webDeductions[idx] = d;
       return;
@@ -614,7 +1247,7 @@ class PocketRepository {
   }
 
   Future<void> deleteFixedDeduction(String id) async {
-    if (kIsWeb) {
+    if (_isInMemory) {
       _webDeductions.removeWhere((x) => x.id == id);
       return;
     }
@@ -655,4 +1288,248 @@ class PocketRepository {
         'is_settled': s.isSettled ? 1 : 0,
         'settled_at': s.settledAtMs,
       };
+
+  Future<bool> isEmailMessageProcessed(String messageId) async {
+    if (messageId.isEmpty) return false;
+    if (_isInMemory) {
+      return _webPendingInbox.any((p) => p.messageId == messageId);
+    }
+    final db = await _db.db;
+    final res = await db.query(
+      'pending_inbox',
+      where: 'message_id = ?',
+      whereArgs: [messageId],
+      limit: 1,
+    );
+    return res.isNotEmpty;
+  }
+
+  Future<String?> getMerchantCategory(String merchant) async {
+    final clean = merchant.trim().toLowerCase();
+    if (clean.isEmpty) return null;
+    if (_isInMemory) {
+      return _webMerchantMemory[clean];
+    }
+    final db = await _db.db;
+    final res = await db.query(
+      'merchant_memory',
+      columns: ['category_id'],
+      where: 'merchant_clean = ?',
+      whereArgs: [clean],
+      limit: 1,
+    );
+    if (res.isNotEmpty) {
+      return res.first['category_id'] as String?;
+    }
+    return null;
+  }
+
+  Future<void> recordMerchantCategory(String merchant, String categoryId) async {
+    final clean = merchant.trim().toLowerCase();
+    if (clean.isEmpty || categoryId.isEmpty) return;
+    if (_isInMemory) {
+      _webMerchantMemory[clean] = categoryId;
+      return;
+    }
+    final db = await _db.db;
+    await db.insert(
+      'merchant_memory',
+      {
+        'merchant_clean': clean,
+        'category_id': categoryId,
+        'last_used_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String?> getMerchantAlias(String rawMerchant) async {
+    final clean = rawMerchant.trim().toLowerCase();
+    if (clean.isEmpty) return null;
+    if (_isInMemory) {
+      if (_webMerchantAliases.containsKey(clean)) return _webMerchantAliases[clean];
+      for (final e in _webMerchantAliases.entries) {
+        if (clean == e.key || clean.contains(e.key) || e.key.contains(clean)) return e.value;
+      }
+      return null;
+    }
+    final db = await _db.db;
+    final res = await db.query(
+      'merchant_aliases',
+      columns: ['display_name', 'raw_merchant_clean'],
+      orderBy: 'last_used_at DESC',
+    );
+    for (final r in res) {
+      final key = r['raw_merchant_clean'] as String? ?? '';
+      final val = r['display_name'] as String? ?? '';
+      if (key.isNotEmpty && (clean == key || clean.contains(key) || key.contains(clean))) {
+        return val;
+      }
+    }
+    return null;
+  }
+
+  Future<void> saveMerchantAlias(String rawMerchant, String displayName) async {
+    final cleanRaw = rawMerchant.trim().toLowerCase();
+    final cleanDisplay = displayName.trim();
+    if (cleanRaw.isEmpty || cleanDisplay.isEmpty || cleanRaw == cleanDisplay.toLowerCase()) return;
+
+    if (_isInMemory) {
+      _webMerchantAliases[cleanRaw] = cleanDisplay;
+      return;
+    }
+    final db = await _db.db;
+    await db.insert(
+      'merchant_aliases',
+      {
+        'raw_merchant_clean': cleanRaw,
+        'display_name': cleanDisplay,
+        'last_used_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<PendingTransaction>> addPendingTransactions(List<PendingTransaction> txns) async {
+    final inserted = <PendingTransaction>[];
+    for (final t in txns) {
+      if (t.messageId != null && await isEmailMessageProcessed(t.messageId!)) {
+        continue;
+      }
+      final alias = await getMerchantAlias(t.merchant);
+      final effectiveMerchant = alias ?? t.merchant;
+
+      var suggested = t.suggestedCategoryId;
+      if (suggested == null || suggested.isEmpty) {
+        suggested = await getMerchantCategory(effectiveMerchant) ?? await getMerchantCategory(t.merchant);
+      }
+      final toAdd = t.copyWith(
+        id: t.id.isEmpty ? _uuid.v4() : t.id,
+        merchant: effectiveMerchant,
+        suggestedCategoryId: suggested,
+      );
+
+      if (_isInMemory) {
+        _webPendingInbox.add(toAdd);
+        inserted.add(toAdd);
+        continue;
+      }
+
+      final db = await _db.db;
+      await db.insert('pending_inbox', _pendingToRow(toAdd), conflictAlgorithm: ConflictAlgorithm.ignore);
+      inserted.add(toAdd);
+    }
+    return inserted;
+  }
+
+  Future<Txn> approvePendingTransaction(
+    PendingTransaction pending, {
+    required String categoryId,
+    Bucket bucket = Bucket.daily,
+    String? outingId,
+    String? note,
+    String? merchant,
+  }) async {
+    final effectiveMerchant = (merchant != null && merchant.trim().isNotEmpty)
+        ? merchant.trim()
+        : pending.merchant;
+
+    final txn = await addTxn(
+      direction: pending.direction,
+      amountPaise: pending.amountPaise,
+      localDate: pending.localDate,
+      merchant: effectiveMerchant,
+      categoryId: categoryId,
+      bucket: bucket,
+      outingId: outingId,
+      note: note ?? (pending.rawSource.isNotEmpty ? 'Slice Auto-Sync' : ''),
+    );
+
+    await recordMerchantCategory(pending.merchant, categoryId);
+    if (effectiveMerchant.isNotEmpty && effectiveMerchant.toLowerCase() != pending.merchant.toLowerCase()) {
+      await saveMerchantAlias(pending.merchant, effectiveMerchant);
+      await recordMerchantCategory(effectiveMerchant, categoryId);
+    }
+
+    if (_isInMemory) {
+      final idx = _webPendingInbox.indexWhere((p) => p.id == pending.id);
+      if (idx != -1) {
+        _webPendingInbox[idx] = _webPendingInbox[idx].copyWith(status: InboxStatus.approved);
+      }
+      return txn;
+    }
+
+    final db = await _db.db;
+    await db.update(
+      'pending_inbox',
+      {'status': 'approved'},
+      where: 'id = ?',
+      whereArgs: [pending.id],
+    );
+    return txn;
+  }
+
+  Future<void> dismissPendingTransaction(String id) async {
+    if (_isInMemory) {
+      final idx = _webPendingInbox.indexWhere((p) => p.id == id);
+      if (idx != -1) {
+        _webPendingInbox[idx] = _webPendingInbox[idx].copyWith(status: InboxStatus.dismissed);
+      }
+      return;
+    }
+
+    final db = await _db.db;
+    await db.update(
+      'pending_inbox',
+      {'status': 'dismissed'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> clearPendingInbox() async {
+    if (_isInMemory) {
+      _webPendingInbox.removeWhere((p) => p.status == InboxStatus.pending);
+      return;
+    }
+
+    final db = await _db.db;
+    await db.delete(
+      'pending_inbox',
+      where: 'status = ?',
+      whereArgs: ['pending'],
+    );
+  }
+
+  PendingTransaction _pendingFromRow(Map<String, Object?> r) {
+    return PendingTransaction(
+      id: r['id'] as String,
+      amountPaise: r['amount_paise'] as int,
+      direction: r['direction'] == 'credit' ? Direction.credit : Direction.debit,
+      occurredAtMs: r['occurred_at'] as int,
+      localDate: LocalDate.parse(r['local_date'] as String),
+      merchant: r['merchant'] as String,
+      suggestedCategoryId: r['suggested_category_id'] as String?,
+      rawSource: r['raw_source'] as String,
+      messageId: r['message_id'] as String?,
+      status: r['status'] == 'approved'
+          ? InboxStatus.approved
+          : (r['status'] == 'dismissed' ? InboxStatus.dismissed : InboxStatus.pending),
+    );
+  }
+
+  Map<String, Object?> _pendingToRow(PendingTransaction p) => {
+        'id': p.id,
+        'amount_paise': p.amountPaise,
+        'direction': p.direction == Direction.credit ? 'credit' : 'debit',
+        'occurred_at': p.occurredAtMs,
+        'local_date': p.localDate.ymd,
+        'merchant': p.merchant,
+        'suggested_category_id': p.suggestedCategoryId,
+        'raw_source': p.rawSource,
+        'message_id': p.messageId,
+        'status': p.status.name,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      };
 }
+

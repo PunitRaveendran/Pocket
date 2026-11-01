@@ -17,7 +17,7 @@ class UpiSmsParser {
   const UpiSmsParser._();
 
   static final _amountRegex = RegExp(
-    r'(?:rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)',
+    r'(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)',
     caseSensitive: false,
   );
 

@@ -1,7 +1,10 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/dates.dart';
-import '../core/glance_widget.dart';
+import '../core/slice_email_sync.dart';
+import '../core/sms_sync_service.dart';
 import '../data/database.dart';
 import '../data/models.dart';
 import '../data/repository.dart';
@@ -13,28 +16,87 @@ final repositoryProvider = Provider<PocketRepository>(
   (ref) => PocketRepository(ref.watch(databaseProvider)),
 );
 
+final emailSyncServiceProvider = Provider<BankEmailSyncService>(
+  (ref) => const BankEmailSyncService(),
+);
+
+final smsSyncServiceProvider = Provider<SmsSyncService>(
+  (ref) => const SmsSyncService(),
+);
+
 final ledgerProvider = AsyncNotifierProvider<LedgerNotifier, Ledger>(LedgerNotifier.new);
 
 class LedgerNotifier extends AsyncNotifier<Ledger> {
   PocketRepository get _repo => ref.read(repositoryProvider);
+  BankEmailSyncService get _emailSyncService => ref.read(emailSyncServiceProvider);
+  SmsSyncService get _smsSyncService => ref.read(smsSyncServiceProvider);
+  bool _isSyncingSlice = false;
+  bool get isSyncingSlice => _isSyncingSlice;
+  bool _isSyncingSms = false;
+  bool get isSyncingSms => _isSyncingSms;
 
   @override
   Future<Ledger> build() async {
     final ledger = await _repo.load();
-    // Fire and forget widget update
-    GlanceWidgetService.update(ledger);
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (ledger.settings.smsSyncEnabled) {
+        syncSms();
+      }
+      if (ledger.settings.emailSyncEnabled &&
+          ledger.settings.emailSyncAddress.isNotEmpty &&
+          ledger.settings.emailSyncAppPassword.isNotEmpty) {
+        syncSliceEmails();
+      }
+    });
     return ledger;
+  }
+
+  Future<void> reload() async {
+    await _reload();
   }
 
   Future<void> _reload() async {
     final loaded = await _repo.load();
-    state = AsyncData(loaded);
-    GlanceWidgetService.update(loaded);
+    final prev = state.valueOrNull;
+    if (prev != null) {
+      final settings = prev.settings == loaded.settings ? prev.settings : loaded.settings;
+      final categories =
+          listEquals(prev.categories, loaded.categories) ? prev.categories : loaded.categories;
+      final txns =
+          listEquals(prev.transactions, loaded.transactions) ? prev.transactions : loaded.transactions;
+      final outings =
+          listEquals(prev.outings, loaded.outings) ? prev.outings : loaded.outings;
+      final splits =
+          listEquals(prev.friendSplits, loaded.friendSplits) ? prev.friendSplits : loaded.friendSplits;
+      final inbox =
+          listEquals(prev.pendingInbox, loaded.pendingInbox) ? prev.pendingInbox : loaded.pendingInbox;
+      final savedFriends =
+          listEquals(prev.savedFriends, loaded.savedFriends) ? prev.savedFriends : loaded.savedFriends;
+
+      state = AsyncData(
+        Ledger(
+          settings: settings,
+          categories: categories,
+          transactions: txns,
+          outings: outings,
+          friendSplits: splits,
+          pendingInbox: inbox,
+          savedFriends: savedFriends,
+        ),
+      );
+    } else {
+      state = AsyncData(loaded);
+    }
   }
 
   Future<void> completeOnboarding({
     required int stipendPaise,
     required int cycleStartDay,
+    bool emailSyncEnabled = false,
+    String emailSyncAddress = '',
+    String emailSyncAppPassword = '',
+    String emailSyncSender = BankPresets.defaultSendersString,
+    bool smsSyncEnabled = false,
   }) async {
     await _repo.saveSettings(
       Settings(
@@ -42,9 +104,20 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
         cycleStartDay: cycleStartDay,
         hideAmounts: false,
         onboarded: true,
+        emailSyncEnabled: emailSyncEnabled,
+        emailSyncAddress: emailSyncAddress,
+        emailSyncAppPassword: emailSyncAppPassword,
+        emailSyncSender: emailSyncSender,
+        smsSyncEnabled: smsSyncEnabled,
       ),
     );
     await _reload();
+    if (smsSyncEnabled) {
+      Future.delayed(const Duration(milliseconds: 500), () => syncSms());
+    }
+    if (emailSyncEnabled && emailSyncAddress.isNotEmpty && emailSyncAppPassword.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 800), () => syncSliceEmails());
+    }
   }
 
   Future<void> updateSettings(Settings settings) async {
@@ -59,6 +132,21 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
 
   Future<void> deleteCategory(String id) async {
     await _repo.deleteCategory(id);
+    await _reload();
+  }
+
+  Future<void> reorderCategories(List<String> orderedIds) async {
+    await _repo.reorderCategories(orderedIds);
+    await _reload();
+  }
+
+  Future<void> addFriend(String name) async {
+    await _repo.addFriend(name);
+    await _reload();
+  }
+
+  Future<void> deleteFriend(String name) async {
+    await _repo.deleteFriend(name);
     await _reload();
   }
 
@@ -107,17 +195,13 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     String note = '',
     String? existingOutingId,
   }) async {
-    final outingId = existingOutingId ??
-        (await _repo.addOuting(title: title, localDate: date, note: note)).id;
-    await _repo.addTxn(
+    await _repo.addOutingWithSpend(
+      title: title,
       amountPaise: amountPaise,
-      direction: Direction.debit,
-      localDate: date,
-      merchant: itemTitle.isNotEmpty ? itemTitle : title,
-      categoryId: 'misc',
-      bucket: Bucket.outing,
-      outingId: outingId,
+      date: date,
+      itemTitle: itemTitle,
       note: note,
+      existingOutingId: existingOutingId,
     );
     await _reload();
   }
@@ -127,8 +211,18 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> updateTxn(Txn txn) async {
+    await _repo.updateTxn(txn);
+    await _reload();
+  }
+
   Future<void> deleteTxn(String id) async {
     await _repo.softDeleteTxn(id);
+    await _reload();
+  }
+
+  Future<void> restoreTxn(Txn txn) async {
+    await _repo.restoreTxn(txn);
     await _reload();
   }
 
@@ -144,7 +238,7 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
-  Future<void> addFriendSplit({
+  Future<FriendSplit> addFriendSplit({
     required String friendName,
     required int amountPaise,
     required SplitDirection direction,
@@ -152,25 +246,16 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     String note = '',
     bool deductFromDaily = false,
   }) async {
-    await _repo.addFriendSplit(
+    final split = await _repo.addFriendSplit(
       friendName: friendName,
       amountPaise: amountPaise,
       direction: direction,
       localDate: date,
       note: note,
+      deductFromDaily: deductFromDaily,
     );
-    if (deductFromDaily && direction == SplitDirection.youAreOwed) {
-      await _repo.addTxn(
-        amountPaise: amountPaise,
-        direction: Direction.debit,
-        localDate: date,
-        merchant: 'Lent to $friendName',
-        categoryId: 'misc',
-        bucket: Bucket.daily,
-        note: note.isNotEmpty ? 'Split: $note' : 'Lent to $friendName',
-      );
-    }
     await _reload();
+    return split;
   }
 
   Future<void> updateFriendSplit(FriendSplit split) async {
@@ -188,54 +273,285 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> splitBill({
+    required int totalAmountPaise,
+    required int mySharePaise,
+    required List<({String friendName, int amountPaise})> friends,
+    required LocalDate date,
+    required String categoryId,
+    required String merchant,
+    String note = '',
+    String? pendingInboxId,
+  }) async {
+    final pendingItem = pendingInboxId != null
+        ? state.valueOrNull?.pendingInbox.where((p) => p.id == pendingInboxId).firstOrNull
+        : null;
+    await _repo.splitBill(
+      totalAmountPaise: totalAmountPaise,
+      mySharePaise: mySharePaise,
+      friends: friends,
+      date: date,
+      categoryId: categoryId,
+      merchant: merchant,
+      note: note,
+      pendingInboxId: pendingInboxId,
+    );
+    if (pendingItem?.messageId != null && pendingItem!.messageId!.isNotEmpty) {
+      unawaited(archiveProcessedEmail(pendingItem.messageId));
+    }
+    await _reload();
+  }
+
   Future<void> borrowFromTomorrow({
     required int amountPaise,
     required LocalDate today,
   }) async {
-    final tomorrow = today.addDays(1);
-    await _repo.addTxn(
-      amountPaise: amountPaise,
-      direction: Direction.credit,
-      localDate: today,
-      merchant: "Borrowed from tomorrow's allowance",
-      categoryId: 'misc',
-      bucket: Bucket.daily,
-      note: 'Overspend recovery',
-    );
-    await _repo.addTxn(
-      amountPaise: amountPaise,
-      direction: Direction.debit,
-      localDate: tomorrow,
-      merchant: 'Carried forward from yesterday',
-      categoryId: 'misc',
-      bucket: Bucket.daily,
-      note: 'Overspend recovery',
-    );
+    await _repo.borrowFromTomorrow(amountPaise: amountPaise, today: today);
     await _reload();
   }
 
   Future<void> reclassifyTxnAsOuting(Txn txn, {String outingTitle = 'Overspend Splurge'}) async {
-    final outing = await _repo.addOuting(
-      title: outingTitle,
-      localDate: txn.localDate,
-      note: 'Reclassified from daily (${txn.merchant})',
-    );
-    await _repo.updateTxn(
-      Txn(
-        id: txn.id,
-        amountPaise: txn.amountPaise,
-        direction: txn.direction,
-        occurredAtMs: txn.occurredAtMs,
-        localDate: txn.localDate,
-        merchant: txn.merchant,
-        categoryId: txn.categoryId,
-        bucket: Bucket.outing,
-        outingId: outing.id,
-        note: txn.note,
-      ),
-    );
+    await _repo.reclassifyTxnAsOuting(txn, outingTitle: outingTitle);
     await _reload();
   }
+
+  Future<SliceSyncResult> syncSliceEmails({bool force = false}) async {
+    if (_isSyncingSlice) {
+      return const SliceSyncResult(
+        success: true,
+        errorMessage: null,
+      );
+    }
+
+    var ledger = state.valueOrNull;
+    if (ledger == null) {
+      try {
+        ledger = await _repo.load();
+      } catch (e) {
+        return SliceSyncResult(
+          success: false,
+          errorMessage: 'Ledger is not ready: $e',
+        );
+      }
+    }
+
+    final s = ledger.settings;
+    if (!force && !s.emailSyncEnabled) {
+      return const SliceSyncResult(
+        success: false,
+        errorMessage: 'Email sync is disabled in Settings.',
+      );
+    }
+
+    if (s.emailSyncAddress.trim().isEmpty || s.emailSyncAppPassword.trim().isEmpty) {
+      return const SliceSyncResult(
+        success: false,
+        errorMessage: 'Please configure your Gmail address and Google App Password in Settings.',
+      );
+    }
+
+    _isSyncingSlice = true;
+    try {
+      final result = await _emailSyncService.sync(
+        email: s.emailSyncAddress,
+        appPassword: s.emailSyncAppPassword,
+        sender: s.emailSyncSender.trim().isEmpty ? BankPresets.defaultSendersString : s.emailSyncSender.trim(),
+        isAlreadyProcessed: (msgId) => _repo.isEmailMessageProcessed(msgId),
+      );
+
+      if (result.success && result.transactions.isNotEmpty) {
+        final pendingList = result.transactions.map((p) {
+          return PendingTransaction(
+            id: '',
+            amountPaise: p.amountPaise,
+            direction: p.isDebit ? Direction.debit : Direction.credit,
+            occurredAtMs: p.occurredAt.millisecondsSinceEpoch,
+            localDate: p.localDate,
+            merchant: p.merchant,
+            rawSource: 'slice_email',
+            messageId: p.messageId,
+            status: InboxStatus.pending,
+          );
+        }).toList();
+
+        await _repo.addPendingTransactions(pendingList);
+      }
+
+      if (result.success) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        await _repo.saveSettings(s.copyWith(emailSyncLastSyncedMs: now));
+      }
+
+      await _reload();
+      return result;
+    } finally {
+      _isSyncingSlice = false;
+    }
+  }
+
+  Future<BankSyncResult> syncBankEmails({bool force = false}) => syncSliceEmails(force: force);
+
+  Future<SmsSyncResult> syncSms({bool force = false}) async {
+    if (_isSyncingSms) {
+      return const SmsSyncResult(success: true, errorMessage: null);
+    }
+
+    var ledger = state.valueOrNull;
+    if (ledger == null) {
+      try {
+        ledger = await _repo.load();
+      } catch (e) {
+        return SmsSyncResult(success: false, errorMessage: 'Ledger not ready: $e');
+      }
+    }
+
+    final s = ledger.settings;
+    if (!force && !s.smsSyncEnabled) {
+      return const SmsSyncResult(success: false, errorMessage: 'SMS sync is disabled in Settings.');
+    }
+
+    _isSyncingSms = true;
+    try {
+      final hasPerm = await _smsSyncService.hasPermission();
+      if (!hasPerm) {
+        final granted = await _smsSyncService.requestPermission();
+        if (!granted) {
+          return const SmsSyncResult(
+            success: false,
+            errorMessage: 'SMS permission was not granted.',
+          );
+        }
+      }
+
+      final result = await _smsSyncService.syncSms(
+        isAlreadyProcessed: (msgId) => _repo.isEmailMessageProcessed(msgId),
+      );
+
+      if (result.success && result.transactions.isNotEmpty) {
+        final pendingList = result.transactions.map((p) {
+          return PendingTransaction(
+            id: '',
+            amountPaise: p.amountPaise,
+            direction: p.isDebit ? Direction.debit : Direction.credit,
+            occurredAtMs: p.occurredAt.millisecondsSinceEpoch,
+            localDate: p.localDate,
+            merchant: p.merchant,
+            rawSource: 'sms',
+            messageId: p.messageId,
+            status: InboxStatus.pending,
+          );
+        }).toList();
+
+        await _repo.addPendingTransactions(pendingList);
+      }
+
+      if (result.success) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        await _repo.saveSettings(s.copyWith(smsSyncLastSyncedMs: now));
+      }
+
+      await _reload();
+      return result;
+    } finally {
+      _isSyncingSms = false;
+    }
+  }
+
+  Future<void> syncAllBankTransactions() async {
+    final s = state.valueOrNull?.settings;
+    if (s == null) return;
+    if (s.smsSyncEnabled) {
+      await syncSms();
+    }
+    if (s.emailSyncEnabled) {
+      await syncSliceEmails();
+    }
+  }
+
+  Future<SliceSyncResult> clearPendingAndResync() async {
+    await _repo.clearPendingInbox();
+    return syncSliceEmails();
+  }
+
+  Future<Txn> approveInboxTransaction(
+    PendingTransaction pending, {
+    required String categoryId,
+    Bucket bucket = Bucket.daily,
+    String? outingId,
+    String? note,
+    String? merchant,
+  }) async {
+    final txn = await _repo.approvePendingTransaction(
+      pending,
+      categoryId: categoryId,
+      bucket: bucket,
+      outingId: outingId,
+      note: note,
+      merchant: merchant,
+    );
+    if (pending.messageId != null && pending.messageId!.isNotEmpty) {
+      unawaited(archiveProcessedEmail(pending.messageId));
+    }
+    await _reload();
+    return txn;
+  }
+
+  Future<void> dismissInboxTransaction(String id) async {
+    final pendingItem = state.valueOrNull?.pendingInbox.where((p) => p.id == id).firstOrNull;
+    await _repo.dismissPendingTransaction(id);
+    if (pendingItem?.messageId != null && pendingItem!.messageId!.isNotEmpty) {
+      unawaited(archiveProcessedEmail(pendingItem.messageId));
+    }
+    await _reload();
+  }
+
+  /// Non-blocking background worker to archive processed bank/Slice transaction emails in Gmail.
+  Future<void> archiveProcessedEmail(String? messageId) async {
+    if (messageId == null || messageId.trim().isEmpty) return;
+    final s = state.valueOrNull?.settings;
+    if (s == null || !s.emailSyncEnabled) return;
+    if (s.emailSyncAddress.trim().isEmpty || s.emailSyncAppPassword.trim().isEmpty) return;
+
+    try {
+      await _emailSyncService.archiveEmail(
+        email: s.emailSyncAddress,
+        appPassword: s.emailSyncAppPassword,
+        messageId: messageId,
+      );
+    } catch (_) {
+      // Non-critical background task
+    }
+  }
+
+  /// Learns and stores a user-friendly display name alias for a raw bank sender or shop name.
+  Future<void> saveMerchantAlias({
+    required String rawMerchant,
+    required String displayName,
+  }) async {
+    await _repo.saveMerchantAlias(rawMerchant, displayName);
+    await _reload();
+  }
+
+  /// Compacts and defragments database pages and re-optimizes query planner statistics.
+  Future<void> optimizeStorage() async {
+    await _repo.optimizeDatabase();
+    await _reload();
+  }
+
+  /// Retrieves on-disk storage size of the local SQLite database in bytes.
+  Future<int> getStorageSizeBytes() => _repo.getStorageSizeBytes();
+
+  /// Permanently removes soft-deleted records older than [olderThanDays] and vacuums the database.
+  Future<int> purgeDeletedRecords({int olderThanDays = 30}) async {
+    final count = await _repo.purgeDeletedRecords(olderThanDays: olderThanDays);
+    if (count > 0) {
+      await _reload();
+    }
+    return count;
+  }
+
+  /// Checks SQLite database integrity.
+  Future<String> checkIntegrity() => _repo.checkIntegrity();
 
   Future<void> addFixedDeduction({
     required String title,
@@ -263,17 +579,17 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
   }
 
+  Future<void> setThemeMode(AppThemeMode mode) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    await _repo.saveSettings(current.settings.copyWith(appThemeMode: mode));
+    await _reload();
+  }
+
   Future<void> setBiometricEnabled(bool enabled) async {
     final current = state.valueOrNull;
     if (current == null) return;
     await _repo.saveSettings(current.settings.copyWith(biometricEnabled: enabled));
-    await _reload();
-  }
-
-  Future<void> setVacationMode(bool enabled) async {
-    final current = state.valueOrNull;
-    if (current == null) return;
-    await _repo.saveSettings(current.settings.copyWith(isVacationMode: enabled));
     await _reload();
   }
 
@@ -324,7 +640,7 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
     if (t.direction == Direction.debit) {
       spent += t.amountPaise;
       byCat[t.categoryId] = (byCat[t.categoryId] ?? 0) + t.amountPaise;
-    } else {
+    } else if (t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
       refunds += t.amountPaise;
     }
   }
@@ -339,6 +655,7 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
   });
 
   const engine = BudgetEngine();
+  final cycleStipend = effectiveStipendForCycle(ledger, cycle);
   var weekAllowance = 0;
 
   if (ledger.settings.leftoverPolicy == LeftoverPolicy.dynamicDistribute && cycle.contains(day)) {
@@ -346,11 +663,15 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
     for (var d = cycle.start; d.dateTime.isBefore(weekStart.dateTime); d = d.addDays(1)) {
       for (final t in ledger.transactions) {
         if (t.bucket == Bucket.daily && t.localDate == d) {
-          spentBeforeWeek += t.signedPaise;
+          if (t.direction == Direction.debit) {
+            spentBeforeWeek += t.amountPaise;
+          } else if (t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
+            spentBeforeWeek -= t.amountPaise;
+          }
         }
       }
     }
-    final remainingStipend = ledger.settings.effectiveStipendPaise - spentBeforeWeek;
+    final remainingStipend = (cycleStipend - spentBeforeWeek).clamp(0, 999999999);
     final remainingDaysInCycle = cycle.endInclusive.dateTime.difference(weekStart.dateTime).inDays + 1;
     final daysInThisWeek = currentWeek.lengthDays;
 
@@ -365,7 +686,7 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
     } else {
       for (var d = weekStart; !d.dateTime.isAfter(weekEnd.dateTime); d = d.addDays(1)) {
         weekAllowance += engine.allowanceFor(
-          stipendPaise: ledger.settings.effectiveStipendPaise,
+          stipendPaise: cycleStipend,
           cycle: cycle,
           day: d,
         );
@@ -374,7 +695,7 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
   } else {
     for (var d = weekStart; !d.dateTime.isAfter(weekEnd.dateTime); d = d.addDays(1)) {
       weekAllowance += engine.allowanceFor(
-        stipendPaise: ledger.settings.effectiveStipendPaise,
+        stipendPaise: cycleStipend,
         cycle: cycle,
         day: d,
       );
@@ -429,7 +750,7 @@ TodayView buildToday(Ledger ledger, {LocalDate? date}) {
     if (t.direction == Direction.debit) {
       spent += t.amountPaise;
       byCat[t.categoryId] = (byCat[t.categoryId] ?? 0) + t.amountPaise;
-    } else {
+    } else if (t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
       refunds += t.amountPaise;
     }
   }
@@ -442,17 +763,20 @@ TodayView buildToday(Ledger ledger, {LocalDate? date}) {
     }
   });
 
+  final cycleStipend = effectiveStipendForCycle(ledger, cycle);
   int allowancePaise;
   if (ledger.settings.leftoverPolicy == LeftoverPolicy.dynamicDistribute && cycle.contains(day)) {
     var spentBefore = 0;
-    for (var d = cycle.start; d.dateTime.isBefore(day.dateTime); d = d.addDays(1)) {
-      for (final t in ledger.transactions) {
-        if (t.bucket == Bucket.daily && t.localDate == d) {
-          spentBefore += t.signedPaise;
+    for (final t in ledger.transactions) {
+      if (t.bucket == Bucket.daily && cycle.contains(t.localDate) && t.localDate.isBefore(day)) {
+        if (t.direction == Direction.debit) {
+          spentBefore += t.amountPaise;
+        } else if (t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
+          spentBefore -= t.amountPaise;
         }
       }
     }
-    final remainingStipend = ledger.settings.effectiveStipendPaise - spentBefore;
+    final remainingStipend = cycleStipend - spentBefore;
     final remainingDays = cycle.endInclusive.dateTime.difference(day.dateTime).inDays + 1;
     if (remainingDays > 0 && remainingStipend > 0) {
       final base = remainingStipend ~/ remainingDays;
@@ -460,14 +784,14 @@ TodayView buildToday(Ledger ledger, {LocalDate? date}) {
       allowancePaise = cycle.isLastDay(day) ? (base + leftover) : base;
     } else {
       allowancePaise = const BudgetEngine().allowanceFor(
-        stipendPaise: ledger.settings.effectiveStipendPaise,
+        stipendPaise: cycleStipend,
         cycle: cycle,
         day: day,
       );
     }
   } else {
     allowancePaise = const BudgetEngine().allowanceFor(
-      stipendPaise: ledger.settings.effectiveStipendPaise,
+      stipendPaise: cycleStipend,
       cycle: cycle,
       day: day,
     );
@@ -499,33 +823,93 @@ int extraThisCycle(Ledger ledger, PayCycle cycle) {
   return sum;
 }
 
+int extraTopUpForCycle(Ledger ledger, PayCycle cycle) {
+  var topUp = 0;
+  for (final t in ledger.transactions) {
+    if (cycle.contains(t.localDate) &&
+        t.direction == Direction.credit &&
+        (t.categoryId == 'income' || t.note.toLowerCase().contains('top-up') || t.note.toLowerCase().contains('extra money'))) {
+      topUp += t.amountPaise;
+    }
+  }
+  return topUp;
+}
+
 int ordinaryThisCycle(Ledger ledger, PayCycle cycle) {
   var sum = 0;
   for (final t in ledger.transactions) {
     if (t.bucket != Bucket.daily) continue;
     if (!cycle.contains(t.localDate)) continue;
     if (t.direction == Direction.debit) sum += t.amountPaise;
-    if (t.direction == Direction.credit) sum -= t.amountPaise;
+    if (t.direction == Direction.credit && t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
+      sum -= t.amountPaise;
+    }
   }
   return sum;
 }
 
+/// Unspent savings rolled over from the previous cycle if [Settings.rolloverUnspent] is enabled.
+int rolloverSavingsFromPreviousCycle(Ledger ledger, PayCycle currentCycle) {
+  if (!ledger.settings.rolloverUnspent) return 0;
+  final prevDay = currentCycle.start.addDays(-1);
+  final prevCycle = PayCycle.containing(prevDay, ledger.settings.cycleStartDay);
+
+  // Only roll over if the user was actively logging in that previous cycle
+  final hasPrevTxns = ledger.transactions.any((t) => prevCycle.contains(t.localDate));
+  if (!hasPrevTxns) return 0;
+
+  final prevEffective = effectiveStipendForCycle(ledger, prevCycle, checkPrior: false);
+  final prevSpent = ordinaryThisCycle(ledger, prevCycle);
+  final leftover = prevEffective - prevSpent;
+  return leftover > 0 ? leftover : 0;
+}
+
+/// The effective stipend for [cycle], incorporating unspent rollover from the prior cycle
+/// if [Settings.rolloverUnspent] is active, plus any extra stipend top-ups added in this cycle.
+int effectiveStipendForCycle(Ledger ledger, PayCycle cycle, {bool checkPrior = true}) {
+  final cycleKey = cycle.start.ymd;
+  if (ledger.settings.cycleAdjustments.containsKey(cycleKey)) {
+    final adjusted = ledger.settings.cycleAdjustments[cycleKey]!;
+    final topUps = extraTopUpForCycle(ledger, cycle);
+    return adjusted + topUps;
+  }
+
+  final base = ledger.settings.effectiveStipendPaise;
+  final topUps = extraTopUpForCycle(ledger, cycle);
+  if (!ledger.settings.rolloverUnspent || !checkPrior) return base + topUps;
+
+  final rollover = rolloverSavingsFromPreviousCycle(ledger, cycle);
+  return base + rollover + topUps;
+}
+
 int safeDailyPace(Ledger ledger, PayCycle cycle, LocalDate day) {
   final ordinary = ordinaryThisCycle(ledger, cycle);
-  final remainingStipend = ledger.settings.effectiveStipendPaise - ordinary;
+  final cycleStipend = effectiveStipendForCycle(ledger, cycle);
+  final remainingStipend = cycleStipend - ordinary;
   final daysRemaining = cycle.endInclusive.dateTime.difference(day.dateTime).inDays + 1;
   return (daysRemaining > 0 && remainingStipend > 0) ? remainingStipend ~/ daysRemaining : 0;
 }
 
 int outingsPiggyBank(Ledger ledger, PayCycle cycle, LocalDate today) {
   const engine = BudgetEngine();
-  final stipend = ledger.settings.effectiveStipendPaise;
+  final stipend = effectiveStipendForCycle(ledger, cycle);
+
+  // Single-pass O(N) daily aggregation
+  final dailySpentMap = <LocalDate, int>{};
+  for (final t in ledger.transactions) {
+    if (t.bucket == Bucket.daily &&
+        cycle.contains(t.localDate) &&
+        t.localDate.isBefore(today) &&
+        t.categoryId != 'income' &&
+        !t.note.toLowerCase().contains('top-up')) {
+      dailySpentMap[t.localDate] = (dailySpentMap[t.localDate] ?? 0) + t.signedPaise;
+    }
+  }
+
   var savings = 0;
-  for (var d = cycle.start; d.dateTime.isBefore(today.dateTime); d = d.addDays(1)) {
+  for (var d = cycle.start; d.isBefore(today); d = d.addDays(1)) {
     final allow = engine.allowanceFor(stipendPaise: stipend, cycle: cycle, day: d);
-    final spent = ledger.transactions
-        .where((t) => t.bucket == Bucket.daily && t.localDate == d)
-        .fold<int>(0, (sum, t) => sum + t.signedPaise);
+    final spent = dailySpentMap[d] ?? 0;
     if (spent < allow) {
       savings += (allow - spent);
     }

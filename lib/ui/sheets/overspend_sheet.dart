@@ -67,26 +67,6 @@ class OverspendSheet extends ConsumerWidget {
             ),
             const SizedBox(height: Space.x6),
 
-            // Option 1: Borrow from tomorrow
-            _ActionCard(
-              icon: Icons.calendar_today_outlined,
-              title: 'Borrow from tomorrow',
-              subtitle:
-                  'Credits $overFormatted to today so today is even, and deducts it from tomorrow’s allowance.',
-              onTap: () async {
-                await ref.read(ledgerProvider.notifier).borrowFromTomorrow(
-                      amountPaise: overPaise,
-                      today: date,
-                    );
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Borrowed $overFormatted from tomorrow')),
-                  );
-                }
-              },
-            ),
-            const SizedBox(height: Space.x3),
 
             // Option 2: Reclassify a transaction to Outings
             if (dayTxns.any((x) => x.bucket == Bucket.daily && x.direction == Direction.debit)) ...[

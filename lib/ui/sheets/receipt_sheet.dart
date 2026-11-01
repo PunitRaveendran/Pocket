@@ -32,7 +32,7 @@ class MonthEndReceiptSheet extends StatelessWidget {
 
     final stipend = s.stipendPaise;
     final fixedTotal = s.totalFixedDeductionsPaise;
-    final effective = s.effectiveStipendPaise;
+    final effective = effectiveStipendForCycle(ledger, cycle);
     final ordinary = ordinaryThisCycle(ledger, cycle);
     final extra = extraThisCycle(ledger, cycle);
     final totalSpent = ordinary + extra;

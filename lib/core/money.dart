@@ -5,8 +5,10 @@ class Money {
   static int rupeesToPaise(int rupees) => rupees * 100;
 
   static int fromDigitsAndPaise(String rupeeDigits, int paise) {
-    final rupees = rupeeDigits.isEmpty ? 0 : int.parse(rupeeDigits);
-    return rupees * 100 + paise;
+    final cleaned = rupeeDigits.trim();
+    final rupees = cleaned.isEmpty ? 0 : (int.tryParse(cleaned) ?? 0).clamp(0, 9999999);
+    final safePaise = paise.clamp(0, 99);
+    return rupees * 100 + safePaise;
   }
 
   /// Indian grouping: 1,23,456

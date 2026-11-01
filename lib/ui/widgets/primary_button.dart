@@ -27,11 +27,15 @@ class PrimaryButton extends StatelessWidget {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(Space.controlRadius),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Space.x6),
+            padding: const EdgeInsets.symmetric(horizontal: Space.x4, vertical: 10),
             child: Center(
-              child: Text(
-                label,
-                style: TypeScale.heading(onPressed == null ? t.inkSoft : t.paper),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TypeScale.heading(onPressed == null ? t.inkSoft : t.paper),
+                ),
               ),
             ),
           ),
@@ -63,8 +67,17 @@ class GhostButton extends StatelessWidget {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(Space.controlRadius),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Space.x6),
-            child: Center(child: Text(label, style: TypeScale.heading(t.ink))),
+            padding: const EdgeInsets.symmetric(horizontal: Space.x4, vertical: 10),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TypeScale.heading(t.ink),
+                ),
+              ),
+            ),
           ),
         ),
       ),

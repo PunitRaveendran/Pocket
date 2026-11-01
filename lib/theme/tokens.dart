@@ -39,16 +39,16 @@ class PaperTokens {
   );
 
   static const dark = PaperTokens(
-    paper: Color(0xFF141412),
-    card: Color(0xFF1C1B19),
-    rule: Color(0xFF2E2C27),
-    ink: Color(0xFFEDE9DF),
-    inkSoft: Color(0xFFA8A294),
-    accent: Color(0xFF7FBF9F),
-    accentTint: Color(0xFF1F2B25),
-    over: Color(0xFFE08A7B),
-    overTint: Color(0xFF2F1F1C),
-    caution: Color(0xFFD9A94E),
+    paper: Color(0xFF0C0C0B),
+    card: Color(0xFF161614),
+    rule: Color(0xFF262521),
+    ink: Color(0xFFF1EDE4),
+    inkSoft: Color(0xFFA39D90),
+    accent: Color(0xFF86CCA7),
+    accentTint: Color(0xFF182920),
+    over: Color(0xFFE58878),
+    overTint: Color(0xFF2C1C1A),
+    caution: Color(0xFFE0B256),
   );
 }
 

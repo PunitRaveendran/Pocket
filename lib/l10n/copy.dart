@@ -18,6 +18,7 @@ class Copy {
   static const back = 'Back';
 
   static const today = 'Today';
+  static const splits = 'Splits';
   static const outings = 'Outings';
   static const insights = 'Insights';
   static const settings = 'Settings';

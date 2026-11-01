@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
+
 import '../core/dates.dart';
 
 enum Direction { debit, credit }
@@ -18,6 +20,20 @@ class Category {
   final String icon;
   final bool isSystem;
   final int sortOrder;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Category &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          icon == other.icon &&
+          isSystem == other.isSystem &&
+          sortOrder == other.sortOrder;
+
+  @override
+  int get hashCode => Object.hash(id, name, icon, isSystem, sortOrder);
 }
 
 class Outing {
@@ -32,6 +48,19 @@ class Outing {
   final String title;
   final LocalDate localDate;
   final String note;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Outing &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          title == other.title &&
+          localDate == other.localDate &&
+          note == other.note;
+
+  @override
+  int get hashCode => Object.hash(id, title, localDate, note);
 }
 
 class Txn {
@@ -62,6 +91,62 @@ class Txn {
   int get signedPaise => direction == Direction.debit ? amountPaise : -amountPaise;
 
   DateTime get occurredAt => DateTime.fromMillisecondsSinceEpoch(occurredAtMs);
+
+  Txn copyWith({
+    String? id,
+    int? amountPaise,
+    Direction? direction,
+    int? occurredAtMs,
+    LocalDate? localDate,
+    String? merchant,
+    String? categoryId,
+    Bucket? bucket,
+    String? outingId,
+    String? note,
+  }) {
+    return Txn(
+      id: id ?? this.id,
+      amountPaise: amountPaise ?? this.amountPaise,
+      direction: direction ?? this.direction,
+      occurredAtMs: occurredAtMs ?? this.occurredAtMs,
+      localDate: localDate ?? this.localDate,
+      merchant: merchant ?? this.merchant,
+      categoryId: categoryId ?? this.categoryId,
+      bucket: bucket ?? this.bucket,
+      outingId: outingId ?? this.outingId,
+      note: note ?? this.note,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Txn &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          amountPaise == other.amountPaise &&
+          direction == other.direction &&
+          occurredAtMs == other.occurredAtMs &&
+          localDate == other.localDate &&
+          merchant == other.merchant &&
+          categoryId == other.categoryId &&
+          bucket == other.bucket &&
+          outingId == other.outingId &&
+          note == other.note;
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        amountPaise,
+        direction,
+        occurredAtMs,
+        localDate,
+        merchant,
+        categoryId,
+        bucket,
+        outingId,
+        note,
+      );
 }
 
 enum PacingMode { daily, weekly }
@@ -120,9 +205,39 @@ class FriendSplit {
       settledAtMs: settledAtMs ?? this.settledAtMs,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FriendSplit &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          friendName == other.friendName &&
+          amountPaise == other.amountPaise &&
+          direction == other.direction &&
+          occurredAtMs == other.occurredAtMs &&
+          localDate == other.localDate &&
+          note == other.note &&
+          isSettled == other.isSettled &&
+          settledAtMs == other.settledAtMs;
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        friendName,
+        amountPaise,
+        direction,
+        occurredAtMs,
+        localDate,
+        note,
+        isSettled,
+        settledAtMs,
+      );
 }
 
 enum LeftoverPolicy { dynamicDistribute, outingsPiggyBank }
+
+enum AppThemeMode { system, light, dark }
 
 class FixedDeduction {
   const FixedDeduction({
@@ -150,6 +265,105 @@ class FixedDeduction {
       isEnabled: isEnabled ?? this.isEnabled,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FixedDeduction &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          title == other.title &&
+          amountPaise == other.amountPaise &&
+          isEnabled == other.isEnabled;
+
+  @override
+  int get hashCode => Object.hash(id, title, amountPaise, isEnabled);
+}
+
+enum InboxStatus { pending, approved, dismissed }
+
+class PendingTransaction {
+  const PendingTransaction({
+    required this.id,
+    required this.amountPaise,
+    required this.direction,
+    required this.occurredAtMs,
+    required this.localDate,
+    required this.merchant,
+    this.suggestedCategoryId,
+    required this.rawSource,
+    this.messageId,
+    this.status = InboxStatus.pending,
+  });
+
+  final String id;
+  final int amountPaise;
+  final Direction direction;
+  final int occurredAtMs;
+  final LocalDate localDate;
+  final String merchant;
+  final String? suggestedCategoryId;
+  final String rawSource;
+  final String? messageId;
+  final InboxStatus status;
+
+  DateTime get occurredAt => DateTime.fromMillisecondsSinceEpoch(occurredAtMs);
+
+  PendingTransaction copyWith({
+    String? id,
+    int? amountPaise,
+    Direction? direction,
+    int? occurredAtMs,
+    LocalDate? localDate,
+    String? merchant,
+    String? suggestedCategoryId,
+    String? rawSource,
+    String? messageId,
+    InboxStatus? status,
+  }) {
+    return PendingTransaction(
+      id: id ?? this.id,
+      amountPaise: amountPaise ?? this.amountPaise,
+      direction: direction ?? this.direction,
+      occurredAtMs: occurredAtMs ?? this.occurredAtMs,
+      localDate: localDate ?? this.localDate,
+      merchant: merchant ?? this.merchant,
+      suggestedCategoryId: suggestedCategoryId ?? this.suggestedCategoryId,
+      rawSource: rawSource ?? this.rawSource,
+      messageId: messageId ?? this.messageId,
+      status: status ?? this.status,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PendingTransaction &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          amountPaise == other.amountPaise &&
+          direction == other.direction &&
+          occurredAtMs == other.occurredAtMs &&
+          localDate == other.localDate &&
+          merchant == other.merchant &&
+          suggestedCategoryId == other.suggestedCategoryId &&
+          rawSource == other.rawSource &&
+          messageId == other.messageId &&
+          status == other.status;
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        amountPaise,
+        direction,
+        occurredAtMs,
+        localDate,
+        merchant,
+        suggestedCategoryId,
+        rawSource,
+        messageId,
+        status,
+      );
 }
 
 class Settings {
@@ -162,7 +376,16 @@ class Settings {
     this.leftoverPolicy = LeftoverPolicy.dynamicDistribute,
     this.biometricEnabled = false,
     this.fixedDeductions = const [],
-    this.isVacationMode = false,
+    this.appThemeMode = AppThemeMode.system,
+    this.rolloverUnspent = true,
+    this.cycleAdjustments = const {},
+    this.emailSyncAddress = '',
+    this.emailSyncAppPassword = '',
+    this.emailSyncSender = 'noreply@slice.bank.in',
+    this.emailSyncEnabled = false,
+    this.emailSyncLastSyncedMs,
+    this.smsSyncEnabled = false,
+    this.smsSyncLastSyncedMs,
   });
 
   final int stipendPaise;
@@ -173,7 +396,16 @@ class Settings {
   final LeftoverPolicy leftoverPolicy;
   final bool biometricEnabled;
   final List<FixedDeduction> fixedDeductions;
-  final bool isVacationMode;
+  final AppThemeMode appThemeMode;
+  final bool rolloverUnspent;
+  final Map<String, int> cycleAdjustments;
+  final String emailSyncAddress;
+  final String emailSyncAppPassword;
+  final String emailSyncSender;
+  final bool emailSyncEnabled;
+  final int? emailSyncLastSyncedMs;
+  final bool smsSyncEnabled;
+  final int? smsSyncLastSyncedMs;
 
   int get totalFixedDeductionsPaise =>
       fixedDeductions.where((d) => d.isEnabled).fold(0, (sum, d) => sum + d.amountPaise);
@@ -190,7 +422,16 @@ class Settings {
     LeftoverPolicy? leftoverPolicy,
     bool? biometricEnabled,
     List<FixedDeduction>? fixedDeductions,
-    bool? isVacationMode,
+    AppThemeMode? appThemeMode,
+    bool? rolloverUnspent,
+    Map<String, int>? cycleAdjustments,
+    String? emailSyncAddress,
+    String? emailSyncAppPassword,
+    String? emailSyncSender,
+    bool? emailSyncEnabled,
+    int? emailSyncLastSyncedMs,
+    bool? smsSyncEnabled,
+    int? smsSyncLastSyncedMs,
   }) {
     return Settings(
       stipendPaise: stipendPaise ?? this.stipendPaise,
@@ -201,9 +442,64 @@ class Settings {
       leftoverPolicy: leftoverPolicy ?? this.leftoverPolicy,
       biometricEnabled: biometricEnabled ?? this.biometricEnabled,
       fixedDeductions: fixedDeductions ?? this.fixedDeductions,
-      isVacationMode: isVacationMode ?? this.isVacationMode,
+      appThemeMode: appThemeMode ?? this.appThemeMode,
+      rolloverUnspent: rolloverUnspent ?? this.rolloverUnspent,
+      cycleAdjustments: cycleAdjustments ?? this.cycleAdjustments,
+      emailSyncAddress: emailSyncAddress ?? this.emailSyncAddress,
+      emailSyncAppPassword: emailSyncAppPassword ?? this.emailSyncAppPassword,
+      emailSyncSender: emailSyncSender ?? this.emailSyncSender,
+      emailSyncEnabled: emailSyncEnabled ?? this.emailSyncEnabled,
+      emailSyncLastSyncedMs: emailSyncLastSyncedMs ?? this.emailSyncLastSyncedMs,
+      smsSyncEnabled: smsSyncEnabled ?? this.smsSyncEnabled,
+      smsSyncLastSyncedMs: smsSyncLastSyncedMs ?? this.smsSyncLastSyncedMs,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Settings &&
+          runtimeType == other.runtimeType &&
+          stipendPaise == other.stipendPaise &&
+          cycleStartDay == other.cycleStartDay &&
+          hideAmounts == other.hideAmounts &&
+          onboarded == other.onboarded &&
+          pacingMode == other.pacingMode &&
+          leftoverPolicy == other.leftoverPolicy &&
+          biometricEnabled == other.biometricEnabled &&
+          appThemeMode == other.appThemeMode &&
+          rolloverUnspent == other.rolloverUnspent &&
+          mapEquals(cycleAdjustments, other.cycleAdjustments) &&
+          emailSyncAddress == other.emailSyncAddress &&
+          emailSyncAppPassword == other.emailSyncAppPassword &&
+          emailSyncSender == other.emailSyncSender &&
+          emailSyncEnabled == other.emailSyncEnabled &&
+          emailSyncLastSyncedMs == other.emailSyncLastSyncedMs &&
+          smsSyncEnabled == other.smsSyncEnabled &&
+          smsSyncLastSyncedMs == other.smsSyncLastSyncedMs &&
+          listEquals(fixedDeductions, other.fixedDeductions);
+
+  @override
+  int get hashCode => Object.hash(
+        stipendPaise,
+        cycleStartDay,
+        hideAmounts,
+        onboarded,
+        pacingMode,
+        leftoverPolicy,
+        biometricEnabled,
+        appThemeMode,
+        rolloverUnspent,
+        Object.hashAll(cycleAdjustments.entries.map((e) => Object.hash(e.key, e.value))),
+        emailSyncAddress,
+        emailSyncAppPassword,
+        emailSyncSender,
+        emailSyncEnabled,
+        emailSyncLastSyncedMs,
+        smsSyncEnabled,
+        smsSyncLastSyncedMs,
+        Object.hashAll(fixedDeductions),
+      );
 
   static const defaults = Settings(
     stipendPaise: 250000,
@@ -214,7 +510,13 @@ class Settings {
     leftoverPolicy: LeftoverPolicy.dynamicDistribute,
     biometricEnabled: false,
     fixedDeductions: [],
-    isVacationMode: false,
+    appThemeMode: AppThemeMode.system,
+    rolloverUnspent: true,
+    emailSyncAddress: '',
+    emailSyncAppPassword: '',
+    emailSyncSender: 'noreply@slice.bank.in',
+    emailSyncEnabled: false,
+    emailSyncLastSyncedMs: null,
   );
 }
 
@@ -225,6 +527,9 @@ class Ledger {
     required this.transactions,
     required this.outings,
     this.friendSplits = const [],
+    this.pendingInbox = const [],
+    this.savedFriends = const [],
+    this.merchantAliases = const {},
   });
 
   final Settings settings;
@@ -232,8 +537,61 @@ class Ledger {
   final List<Txn> transactions;
   final List<Outing> outings;
   final List<FriendSplit> friendSplits;
+  final List<PendingTransaction> pendingInbox;
+  final List<String> savedFriends;
+  final Map<String, String> merchantAliases;
 
   List<Txn> get liveTxns => transactions;
+
+  /// Combined deduplicated friend names from both explicitly saved friends and past splits
+  List<String> get allFriendSuggestions {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final f in savedFriends) {
+      final t = f.trim();
+      if (t.isNotEmpty && seen.add(t.toLowerCase())) {
+        result.add(t);
+      }
+    }
+    for (final s in friendSplits) {
+      final t = s.friendName.trim();
+      if (t.isNotEmpty && seen.add(t.toLowerCase())) {
+        result.add(t);
+      }
+    }
+    return result;
+  }
+
+  /// Resolves raw bank sender/receiver name (e.g. "SNEH NIPOON SHETH", "SWIGGY INSTAMART HYD")
+  /// to user's learned friendly display alias (e.g. "Sneh", "Instamart").
+  String resolveMerchantName(String raw) {
+    final clean = raw.trim().toLowerCase();
+    if (clean.isEmpty) return raw;
+
+    // 1. Exact match in learned aliases
+    if (merchantAliases.containsKey(clean)) {
+      return merchantAliases[clean]!;
+    }
+
+    // 2. Substring match
+    for (final entry in merchantAliases.entries) {
+      if (entry.key.isEmpty) continue;
+      if (clean == entry.key || clean.contains(entry.key) || entry.key.contains(clean)) {
+        return entry.value;
+      }
+    }
+
+    // 3. Match against friend suggestions if friend's name is a distinct word in raw name
+    final rawWords = clean.split(RegExp(r'\s+')).where((w) => w.length >= 3).toList();
+    for (final f in allFriendSuggestions) {
+      final fLower = f.toLowerCase();
+      if (rawWords.contains(fLower)) {
+        return f;
+      }
+    }
+
+    return raw;
+  }
 
   int get totalOwedToMePaise => friendSplits
       .where((s) => !s.isSettled && s.direction == SplitDirection.youAreOwed)
@@ -257,5 +615,27 @@ class Ledger {
       if (o.id == id) return o;
     }
     return null;
+  }
+
+  Ledger copyWith({
+    Settings? settings,
+    List<Category>? categories,
+    List<Txn>? transactions,
+    List<Outing>? outings,
+    List<FriendSplit>? friendSplits,
+    List<PendingTransaction>? pendingInbox,
+    List<String>? savedFriends,
+    Map<String, String>? merchantAliases,
+  }) {
+    return Ledger(
+      settings: settings ?? this.settings,
+      categories: categories ?? this.categories,
+      transactions: transactions ?? this.transactions,
+      outings: outings ?? this.outings,
+      friendSplits: friendSplits ?? this.friendSplits,
+      pendingInbox: pendingInbox ?? this.pendingInbox,
+      savedFriends: savedFriends ?? this.savedFriends,
+      merchantAliases: merchantAliases ?? this.merchantAliases,
+    );
   }
 }

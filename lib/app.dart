@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'data/models.dart';
 import 'state/ledger.dart';
 import 'theme/app_theme.dart';
 import 'theme/tokens.dart';
@@ -13,9 +15,25 @@ class PocketApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final brightness = MediaQuery.platformBrightnessOf(context);
-    final tokens = brightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;
+    final systemBrightness = MediaQuery.platformBrightnessOf(context);
     final ledger = ref.watch(ledgerProvider);
+    final appThemeMode = ledger.value?.settings.appThemeMode ?? AppThemeMode.system;
+
+    final Brightness activeBrightness;
+    final ThemeMode themeMode;
+    switch (appThemeMode) {
+      case AppThemeMode.dark:
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.light:
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.system:
+        activeBrightness = systemBrightness;
+        themeMode = ThemeMode.system;
+    }
+
+    final tokens = activeBrightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;
 
     return TokenScope(
       tokens: tokens,
@@ -24,12 +42,30 @@ class PocketApp extends ConsumerWidget {
         debugShowCheckedModeBanner: false,
         theme: PocketTheme.of(Brightness.light),
         darkTheme: PocketTheme.of(Brightness.dark),
-        themeMode: ThemeMode.system,
+        themeMode: themeMode,
+        scrollBehavior: const PocketScrollBehavior(),
         builder: (context, child) {
           final mq = MediaQuery.of(context);
-          return MediaQuery(
-            data: mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1).clamp(1.0, 2.0))),
-            child: child ?? const SizedBox.shrink(),
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness:
+                  activeBrightness == Brightness.dark ? Brightness.light : Brightness.dark,
+              statusBarBrightness:
+                  activeBrightness == Brightness.dark ? Brightness.dark : Brightness.light,
+              systemNavigationBarColor: Colors.transparent,
+              systemNavigationBarDividerColor: Colors.transparent,
+              systemNavigationBarIconBrightness:
+                  activeBrightness == Brightness.dark ? Brightness.light : Brightness.dark,
+              systemNavigationBarContrastEnforced: false,
+              systemStatusBarContrastEnforced: false,
+            ),
+            child: MediaQuery(
+              data: mq.copyWith(
+                textScaler: mq.textScaler.clamp(minScaleFactor: 0.85, maxScaleFactor: 1.35),
+              ),
+              child: child ?? const SizedBox.shrink(),
+            ),
           );
         },
         home: ledger.when(

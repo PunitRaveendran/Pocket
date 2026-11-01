@@ -95,9 +95,16 @@ class PocketTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
         titleTextStyle: TypeScale.title(t.ink),
-        systemOverlayStyle: brightness == Brightness.dark
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: brightness == Brightness.dark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: brightness == Brightness.dark ? Brightness.dark : Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarIconBrightness: brightness == Brightness.dark ? Brightness.light : Brightness.dark,
+          systemNavigationBarContrastEnforced: false,
+          systemStatusBarContrastEnforced: false,
+        ),
       ),
       dividerColor: t.rule,
       splashFactory: NoSplash.splashFactory,
@@ -135,4 +142,13 @@ class TokenScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(TokenScope oldWidget) => tokens != oldWidget.tokens;
+}
+
+class PocketScrollBehavior extends MaterialScrollBehavior {
+  const PocketScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+  }
 }

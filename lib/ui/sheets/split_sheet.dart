@@ -11,19 +11,27 @@ import '../widgets/amount_pad.dart';
 import '../widgets/chips.dart';
 import '../widgets/primary_button.dart';
 
-Future<void> showSplitSheet(
+Future<bool?> showSplitSheet(
   BuildContext context, {
   FriendSplit? editing,
   String? initialFriendName,
   SplitDirection? initialDirection,
+  int? initialAmountPaise,
+  String? initialNote,
+  LocalDate? initialDate,
+  bool initialDeductFromDaily = false,
 }) {
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     builder: (ctx) => SplitSheet(
       editing: editing,
       initialFriendName: initialFriendName,
       initialDirection: initialDirection,
+      initialAmountPaise: initialAmountPaise,
+      initialNote: initialNote,
+      initialDate: initialDate,
+      initialDeductFromDaily: initialDeductFromDaily,
     ),
   );
 }
@@ -34,11 +42,19 @@ class SplitSheet extends ConsumerStatefulWidget {
     this.editing,
     this.initialFriendName,
     this.initialDirection,
+    this.initialAmountPaise,
+    this.initialNote,
+    this.initialDate,
+    this.initialDeductFromDaily = false,
   });
 
   final FriendSplit? editing;
   final String? initialFriendName;
   final SplitDirection? initialDirection;
+  final int? initialAmountPaise;
+  final String? initialNote;
+  final LocalDate? initialDate;
+  final bool initialDeductFromDaily;
 
   @override
   ConsumerState<SplitSheet> createState() => _SplitSheetState();
@@ -56,11 +72,16 @@ class _SplitSheetState extends ConsumerState<SplitSheet> {
   void initState() {
     super.initState();
     final e = widget.editing;
-    _amount = e != null ? AmountValue.fromPaise(e.amountPaise) : AmountValue.fromPaise(0);
+    _amount = e != null
+        ? AmountValue.fromPaise(e.amountPaise)
+        : (widget.initialAmountPaise != null
+            ? AmountValue.fromPaise(widget.initialAmountPaise!)
+            : AmountValue.fromPaise(0));
     _direction = e?.direction ?? widget.initialDirection ?? SplitDirection.youAreOwed;
     _nameController = TextEditingController(text: e?.friendName ?? widget.initialFriendName ?? '');
-    _noteController = TextEditingController(text: e?.note ?? '');
-    _date = e?.localDate ?? LocalDate.today();
+    _noteController = TextEditingController(text: e?.note ?? widget.initialNote ?? '');
+    _deductFromDaily = widget.initialDeductFromDaily;
+    _date = e?.localDate ?? widget.initialDate ?? LocalDate.today();
   }
 
   @override
@@ -107,7 +128,7 @@ class _SplitSheetState extends ConsumerState<SplitSheet> {
           );
     }
 
-    if (mounted) Navigator.pop(context);
+    if (mounted) Navigator.pop(context, true);
   }
 
   @override
@@ -115,13 +136,7 @@ class _SplitSheetState extends ConsumerState<SplitSheet> {
     final t = TokenScope.of(context);
     final ledger = ref.watch(ledgerProvider).valueOrNull;
 
-    // Collect distinct existing friend names for autocomplete chips
-    final existingNames = <String>{};
-    if (ledger != null) {
-      for (final s in ledger.friendSplits) {
-        if (s.friendName.trim().isNotEmpty) existingNames.add(s.friendName.trim());
-      }
-    }
+    final existingNames = ledger?.allFriendSuggestions ?? const [];
 
     final isOwed = _direction == SplitDirection.youAreOwed;
 

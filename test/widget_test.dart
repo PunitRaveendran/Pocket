@@ -9,6 +9,7 @@ import 'package:pocket/theme/app_theme.dart';
 import 'package:pocket/theme/tokens.dart';
 import 'package:pocket/ui/insights/insights_screen.dart';
 import 'package:pocket/ui/outings/outings_screen.dart';
+import 'package:pocket/ui/shell.dart';
 import 'package:pocket/ui/splits/splits_screen.dart';
 import 'package:pocket/ui/today/today_screen.dart';
 import 'package:pocket/ui/widgets/allowance_meter.dart';
@@ -111,10 +112,39 @@ Widget _wrap(Widget child, {Ledger? ledger}) {
 
 class _MockLedgerNotifier extends LedgerNotifier {
   _MockLedgerNotifier(this._initial);
-  final Ledger _initial;
+  Ledger _initial;
 
   @override
   Future<Ledger> build() async => _initial;
+
+  @override
+  Future<void> deleteTxn(String id) async {
+    final current = state.valueOrNull ?? _initial;
+    _initial = current.copyWith(
+      transactions: current.transactions.where((t) => t.id != id).toList(),
+    );
+    state = AsyncData(_initial);
+  }
+
+  @override
+  Future<void> updateTxn(Txn txn) async {
+    final current = state.valueOrNull ?? _initial;
+    _initial = current.copyWith(
+      transactions: current.transactions.map((t) => t.id == txn.id ? txn : t).toList(),
+    );
+    state = AsyncData(_initial);
+  }
+
+  @override
+  Future<void> restoreTxn(Txn txn) async {
+    final current = state.valueOrNull ?? _initial;
+    if (!current.transactions.any((t) => t.id == txn.id)) {
+      _initial = current.copyWith(
+        transactions: [txn, ...current.transactions],
+      );
+      state = AsyncData(_initial);
+    }
+  }
 }
 
 void main() {
@@ -168,6 +198,48 @@ void main() {
     expect(current.rupeeDigits, '80');
   });
 
+  testWidgets('AmountPad clearOnFirstDigit replaces prefilled value instead of appending', (tester) async {
+    var current = const AmountValue(rupeeDigits: '1000', paise: 0);
+    var isFirst = true;
+
+    await tester.pumpWidget(
+      TokenScope(
+        tokens: PaperTokens.light,
+        child: MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                return AmountPad(
+                  value: current,
+                  clearOnFirstDigit: isFirst,
+                  onFirstDigitCleared: () => setState(() => isFirst = false),
+                  onChanged: (val) => setState(() => current = val),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Tap '5'
+    await tester.tap(find.text('5'));
+    await tester.pump();
+    // Replaced 1000 with 5, NOT 10005!
+    expect(current.rupeeDigits, '5');
+    expect(isFirst, false);
+
+    // Tap '0'
+    await tester.tap(find.text('0'));
+    await tester.pump();
+    expect(current.rupeeDigits, '50');
+
+    // Tap '0'
+    await tester.tap(find.text('0'));
+    await tester.pump();
+    expect(current.rupeeDigits, '500');
+  });
+
   testWidgets('TodayScreen renders allowance, category tabs, and transaction rows', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.0;
@@ -193,6 +265,70 @@ void main() {
     expect(find.text('Trek Bus Fare'), findsNothing);
   });
 
+  testWidgets('TodayScreen swipe right opens quick re-categorize sheet and re-categorizes', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const TodayScreen()));
+    await tester.pumpAndSettle();
+
+    // Swipe right on 'Canteen Thali'
+    await tester.drag(find.text('Canteen Thali'), const Offset(300, 0));
+    await tester.pumpAndSettle();
+
+    // Quick category bottom sheet appears
+    expect(
+      find.descendant(of: find.byType(BottomSheet), matching: find.text('Re-categorize')),
+      findsOneWidget,
+    );
+    expect(find.text('Canteen Thali · ₹40'), findsOneWidget);
+
+    // Tap 'Snacks' category in sheet
+    final snacksOption = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.text('Snacks'),
+    );
+    expect(snacksOption, findsOneWidget);
+    await tester.tap(snacksOption);
+    await tester.pumpAndSettle();
+
+    // Feedback toast is shown
+    expect(find.text('Moved to Snacks'), findsOneWidget);
+  });
+
+  testWidgets('TodayScreen swipe left deletes transaction with UNDO option', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const TodayScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Canteen Thali'), findsOneWidget);
+
+    // Swipe left to dismiss and delete
+    await tester.drag(find.text('Canteen Thali'), const Offset(-400, 0));
+    await tester.pumpAndSettle();
+
+    // Canteen Thali is deleted from view
+    expect(find.text('Canteen Thali'), findsNothing);
+    expect(find.text('UNDO'), findsOneWidget);
+
+    // Tap UNDO
+    await tester.tap(find.text('UNDO'));
+    await tester.pumpAndSettle();
+
+    // Transaction is restored
+    expect(find.text('Canteen Thali'), findsOneWidget);
+  });
+
   testWidgets('OutingsScreen renders outings card with extra total and items', (tester) async {
     await tester.pumpWidget(_wrap(const OutingsScreen()));
     await tester.pumpAndSettle();
@@ -201,6 +337,48 @@ void main() {
     expect(find.text('Nandi Hills Trek'), findsOneWidget);
     expect(find.text('Trek Bus Fare'), findsOneWidget);
     expect(find.text('₹450'), findsWidgets);
+  });
+
+  testWidgets('OutingsScreen renders past outings from previous cycle correctly', (tester) async {
+    final prevMonthOuting = Outing(
+      id: 'out_prev',
+      title: 'Other Expenses',
+      localDate: const LocalDate(2026, 10, 31),
+      note: '',
+    );
+    final prevTxn = Txn(
+      id: 't_out_1',
+      amountPaise: 52500,
+      direction: Direction.debit,
+      occurredAtMs: 1000,
+      localDate: const LocalDate(2026, 10, 31),
+      merchant: 'Treat',
+      categoryId: 'misc',
+      bucket: Bucket.outing,
+      outingId: 'out_prev',
+      note: '',
+    );
+
+    final ledgerWithPastOuting = Ledger(
+      settings: const Settings(
+        stipendPaise: 100000,
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+      ),
+      categories: const [],
+      transactions: [prevTxn],
+      outings: [prevMonthOuting],
+    );
+
+    await tester.pumpWidget(_wrap(const OutingsScreen(), ledger: ledgerWithPastOuting));
+    await tester.pumpAndSettle();
+
+    // Verify past outings are clearly displayed
+    expect(find.text('Past Trips & Outings'), findsOneWidget);
+    expect(find.text('Other Expenses'), findsOneWidget);
+    expect(find.text('Treat'), findsOneWidget);
+    expect(find.text('₹525'), findsWidgets);
   });
 
   testWidgets('InsightsScreen renders pacing card, chart, and category proportions', (tester) async {
@@ -214,7 +392,7 @@ void main() {
     await tester.pumpWidget(_wrap(const InsightsScreen()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Safe Daily Pace'), findsOneWidget);
+    expect(find.text('Monthly stipend'), findsOneWidget);
     expect(find.text('Visual Analytics'), findsOneWidget);
     expect(find.text('7-Day Bars'), findsOneWidget);
     expect(find.text('By category'), findsOneWidget);
@@ -238,4 +416,104 @@ void main() {
     expect(find.text('Sneha'), findsOneWidget);
     expect(find.text('Settle Up'), findsWidgets);
   });
+
+  testWidgets('AppShell renders pending Slice transactions badge in AppBar and opens review sheet', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final sample = Ledger(
+      settings: const Settings(
+        stipendPaise: 250000,
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+      ),
+      categories: const [
+        Category(id: 'food', name: 'Food', icon: 'food', isSystem: true, sortOrder: 0),
+        Category(id: 'snacks', name: 'Snacks', icon: 'snacks', isSystem: true, sortOrder: 1),
+      ],
+      transactions: const [],
+      outings: const [],
+      pendingInbox: [
+        PendingTransaction(
+          id: 'p-1',
+          amountPaise: 24000,
+          direction: Direction.debit,
+          occurredAtMs: DateTime.now().millisecondsSinceEpoch,
+          localDate: LocalDate.today(),
+          merchant: 'Ramesh Canteen',
+          rawSource: 'slice_email',
+          messageId: 'slice-msg-1',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_wrap(const AppShell(), ledger: sample));
+    await tester.pumpAndSettle();
+
+    // Verify presence of Slice inbox pill in AppBar
+    expect(find.byIcon(Icons.inbox_outlined), findsOneWidget);
+    expect(find.text('1 new'), findsOneWidget);
+
+    // Tap the inbox pill to open the review sheet
+    await tester.tap(find.byIcon(Icons.inbox_outlined));
+    await tester.pumpAndSettle();
+
+    // Verify sheet content
+    expect(find.text('Slice Transactions'), findsOneWidget);
+    expect(find.text('What was this for?'), findsOneWidget);
+    expect(find.text('Just me'), findsOneWidget);
+    expect(find.text('Split with friends'), findsOneWidget);
+  });
+
+  testWidgets('AppShell renders all 4 tabs including restored Splits tab and navigates correctly', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const AppShell()));
+    await tester.pumpAndSettle();
+
+    // Verify all 4 bottom navigation tabs are present
+    expect(find.text('Today'), findsWidgets);
+    expect(find.text('Splits'), findsWidgets);
+    expect(find.text('Outings'), findsWidgets);
+    expect(find.text('Insights'), findsWidgets);
+
+    // Tap on Splits tab
+    await tester.tap(find.text('Splits'));
+    await tester.pumpAndSettle();
+
+    // Verify Splits screen content is now shown
+    expect(find.text('Overall: You get back'), findsOneWidget);
+    expect(find.text('Add Split'), findsOneWidget);
+  });
+
+  testWidgets('AppShell allows sliding horizontally to navigate between tabs', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const AppShell()));
+    await tester.pumpAndSettle();
+
+    // Swipe left on the screen (from Today to Splits)
+    await tester.drag(find.byType(PageView), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+
+    // Verify Splits screen is active
+    expect(find.text('Overall: You get back'), findsOneWidget);
+  });
 }
+
+
