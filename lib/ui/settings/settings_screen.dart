@@ -412,6 +412,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
+              key: const PageStorageKey('settings_sms_sync_tile'),
               tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
               leading: Icon(Icons.sms_rounded, size: 20, color: s.smsSyncEnabled ? t.accent : t.inkSoft),
               title: Row(
@@ -493,6 +494,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
+              key: const PageStorageKey('settings_email_sync_tile'),
               tilePadding: const EdgeInsets.symmetric(horizontal: Space.margin),
               leading: Icon(Icons.mark_email_read_rounded, size: 20, color: s.emailSyncEnabled ? t.accent : t.inkSoft),
               title: Text('Bank Email Auto-Sync', style: TypeScale.body(t.ink)),
@@ -1597,7 +1599,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _triggerManualSync(BuildContext context, WidgetRef ref) async {
     setState(() => _isSyncingSlice = true);
     try {
-      final res = await ref.read(ledgerProvider.notifier).syncSliceEmails();
+      final res = await ref.read(ledgerProvider.notifier).syncSliceEmails(force: true);
       if (context.mounted) {
         if (res.success) {
           ScaffoldMessenger.of(context).showSnackBar(

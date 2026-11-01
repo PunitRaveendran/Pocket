@@ -1466,12 +1466,51 @@ class PocketRepository {
           if (existing.isNotEmpty) continue;
         }
 
-        final alias = await getMerchantAlias(t.merchant);
+        final rawClean = t.merchant.trim().toLowerCase();
+        String? alias;
+        if (rawClean.isNotEmpty) {
+          final aliasRes = await txn.query(
+            'merchant_aliases',
+            columns: ['display_name'],
+            where: 'raw_merchant_clean = ?',
+            whereArgs: [rawClean],
+            limit: 1,
+          );
+          if (aliasRes.isNotEmpty) {
+            alias = aliasRes.first['display_name'] as String?;
+          }
+        }
         final effectiveMerchant = alias ?? t.merchant;
 
         var suggested = t.suggestedCategoryId;
         if (suggested == null || suggested.isEmpty) {
-          suggested = await getMerchantCategory(effectiveMerchant) ?? await getMerchantCategory(t.merchant);
+          final effClean = effectiveMerchant.trim().toLowerCase();
+          if (effClean.isNotEmpty) {
+            final catRes = await txn.query(
+              'merchant_memory',
+              columns: ['category_id'],
+              where: 'merchant_clean = ?',
+              whereArgs: [effClean],
+              limit: 1,
+            );
+            if (catRes.isNotEmpty) {
+              suggested = catRes.first['category_id'] as String?;
+            }
+          }
+          if ((suggested == null || suggested.isEmpty) &&
+              rawClean.isNotEmpty &&
+              rawClean != effClean) {
+            final rawCatRes = await txn.query(
+              'merchant_memory',
+              columns: ['category_id'],
+              where: 'merchant_clean = ?',
+              whereArgs: [rawClean],
+              limit: 1,
+            );
+            if (rawCatRes.isNotEmpty) {
+              suggested = rawCatRes.first['category_id'] as String?;
+            }
+          }
         }
         final toAdd = t.copyWith(
           id: t.id.isEmpty ? _uuid.v4() : t.id,

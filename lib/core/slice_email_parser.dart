@@ -68,6 +68,34 @@ class BankPresets {
     senders: ['support@jupiter.money', 'alerts@fi.money', 'alerts@federalbank.co.in'],
   );
 
+  static const indusind = BankPreset(
+    id: 'indusind',
+    name: 'IndusInd Bank',
+    shortName: 'IndusInd',
+    senders: ['alerts@indusind.com', 'reachus@indusind.com'],
+  );
+
+  static const idfc = BankPreset(
+    id: 'idfc',
+    name: 'IDFC FIRST Bank',
+    shortName: 'IDFC FIRST',
+    senders: ['alerts@idfcfirstbank.com'],
+  );
+
+  static const pnb = BankPreset(
+    id: 'pnb',
+    name: 'Punjab National Bank',
+    shortName: 'PNB',
+    senders: ['pnbalerts@pnb.co.in'],
+  );
+
+  static const canara = BankPreset(
+    id: 'canara',
+    name: 'Canara Bank',
+    shortName: 'Canara',
+    senders: ['alert@canarabank.com'],
+  );
+
   static const all = [
     slice,
     hdfc,
@@ -76,12 +104,16 @@ class BankPresets {
     axis,
     kotak,
     jupiterFi,
+    indusind,
+    idfc,
+    pnb,
+    canara,
   ];
 
   static List<String> get allSenders => all.expand((b) => b.senders).toList();
 
   static const String defaultSendersString =
-      'noreply@slice.bank.in, alerts@sliceit.com, alerts@hdfcbank.net, instalerts@hdfcbank.bank.in, alerts@sbi.co.in, donotreply@sbi.co.in, credit_cards@icicibank.com, alerts@icicibank.com, alerts@axisbank.com, creditcards@axisbank.com, alerts@kotak.com, noreply@kotak.com, support@jupiter.money, alerts@fi.money, alerts@federalbank.co.in';
+      'noreply@slice.bank.in, alerts@sliceit.com, alerts@hdfcbank.net, instalerts@hdfcbank.bank.in, alerts@sbi.co.in, donotreply@sbi.co.in, credit_cards@icicibank.com, alerts@icicibank.com, alerts@axisbank.com, creditcards@axisbank.com, alerts@kotak.com, noreply@kotak.com, support@jupiter.money, alerts@fi.money, alerts@federalbank.co.in, alerts@indusind.com, reachus@indusind.com, alerts@idfcfirstbank.com, pnbalerts@pnb.co.in, alert@canarabank.com';
 }
 
 class ParsedEmailTransaction {
@@ -120,17 +152,17 @@ class BankEmailParser {
   );
 
   static final _verbAmountRegex = RegExp(
-    r'\b(?:debited|credited|paid|sent|withdrawn|spent)\s+(?:by|for|with|of)\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)\b',
+    r'\b(?:debited|credited|paid|sent|withdrawn|spent)\s+(?:by|for|with|of)?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)\b',
     caseSensitive: false,
   );
 
   static final _debitRegex = RegExp(
-    r'\b(?:debited|debit|paid|payment|spent|sent|transferred|transfer|trf|withdrawn|purchase|charged|dr)\b',
+    r'\b(?:debited|debit|paid|payment|spent|sent|transferred|transfer|trf|withdrawn|purchase|charged|dr|done a transaction|transaction of|transaction on)\b',
     caseSensitive: false,
   );
 
   static final _creditRegex = RegExp(
-    r'\b(?:credited|credit|received|refunded|refund|added|cashback|deposited|cr)\b',
+    r'\b(?:credited|credit(?!\s*(?:card|-card))|received|refunded|refund|added|cashback|deposited|cr)\b',
     caseSensitive: false,
   );
 
@@ -225,6 +257,7 @@ class BankEmailParser {
       RegExp(r'\b(?:debited|debit of|is debited|was debited|has been debited|a\/c debited)\b'),
       RegExp(r'\b(?:paid|sent|spent)\s+(?:(?:₹|rs\.?|inr)\s*)?[\d,]+'),
       RegExp(r'\b(?:paid to|sent to|transfer to|trf to)\b'),
+      RegExp(r'\b(?:done a transaction|transaction of|transaction on|used for a transaction)\b'),
       RegExp(r'\bupi\/dr\/'),
       RegExp(r'\bdr\b'),
     ];
@@ -276,42 +309,52 @@ class BankEmailParser {
   static final _inlineDebitRegexes = [
     // 1. "Sent/Paid/Transferred <amount> [from ...] to <merchant>" (amount between verb and preposition)
     RegExp(
-      r'(?:sent|paid|transferred|transfer of|payment of)[ \t]+(?:(?:₹|rs\.?|inr)[ \t]*)?[\d,]+(?:\.\d{1,2})?[ \t]+(?:from[ \t]+[^.\n]+?[ \t]+)?to[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|ref|refno|rrn|upi|with|for|is|bal|from)|\.|\n|<|$)',
+      r'(?:sent|paid|transferred|transfer of|payment of)[ \t]+(?:(?:₹|rs\.?|inr)[ \t]*)?[\d,]+(?:\.\d{1,2})?[ \t]+(?:from[ \t]+[^.\n]+?[ \t]+)?to[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|ref|refno|rrn|upi|with|for|is|was|has|successful|account|bal|avail|from)|\.|\n|<|$)',
       caseSensitive: false,
     ),
-    // 2. "spent on your HDFC Bank Card ending 1234 at AMAZON INDIA on 29-10-2026"
+    // 2. "done a transaction of INR 899.00 on your Credit Card ending 9876 at ZOMATO"
     RegExp(
-      r'spent on [^.\n]+ at ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|with|ref|refno|rrn|avail)|\.|\n|<|$)',
+      r'(?:transaction of|done a transaction of)[ \t]+(?:(?:₹|rs\.?|inr)[ \t]*)?[\d,]+(?:\.\d{1,2})?[ \t]+(?:on[ \t]+[^.\n]+?[ \t]+)?at[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|with|ref|refno|rrn|avail|bal|was|has|is)|\.|\n|<|$)',
       caseSensitive: false,
     ),
-    // 3. "UPI transaction of Rs. 450.00 to SWIGGY"
+    // 3. "spent on your HDFC Bank Card ending 1234 at AMAZON INDIA on 29-10-2026"
     RegExp(
-      r'UPI transaction of [^.\n]+ to ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with)|\.|\n|<|$)',
+      r'(?:spent|transaction) on [^.\n]+ at ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|with|ref|refno|rrn|avail|bal|was|has|is)|\.|\n|<|$)',
+      caseSensitive: false,
+    ),
+    // 4. "spent Rs. 210.00 at Starbucks using..."
+    RegExp(
+      r'spent[ \t]+(?:(?:₹|rs\.?|inr)[ \t]*)?[\d,]+(?:\.\d{1,2})?[ \t]+(?:on[ \t]+[^.\n]+?[ \t]+)?at[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|with|ref|refno|rrn|avail|bal|was|has|is)|\.|\n|<|$)',
+      caseSensitive: false,
+    ),
+    // 5. "UPI transaction of Rs. 450.00 to SWIGGY"
+    RegExp(
+      r'UPI transaction of [^.\n]+ to ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|was|has|successful|account|bal|avail)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // 4. "debited ... trf to / transfer to / towards UPI payment to / towards / to / at <merchant>"
     RegExp(
-      r'debited [^.\n]*?(?:trf to|transfer to|transferred to|towards UPI payment to|towards payment to|towards|to|at)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|txn|from|avail|bal)|\.|\n|<|$)',
+      r'debited [^.\n]*?(?:trf to|transfer to|transferred to|towards UPI payment to|towards payment to|towards|to|at)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|txn|from|avail|bal|account|was|has|is|successful)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // 5. "trf to / transfer to / transferred to <merchant>"
     RegExp(
-      r'(?:trf to|transfer to|transferred to|towards transfer to)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|account|bal)|\.|\n|<|$)',
+      r'(?:trf to|transfer to|transferred to|towards transfer to)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|was|has|successful|account|bal|avail)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // 6. "paid to / sent to / towards payment to / towards <merchant>"
     RegExp(
-      r'(?:paid to|sent to|towards payment to|towards)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|account|bal)|\.|\n|<|$)',
+      r'(?:paid to|sent to|towards payment to|towards)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|was|has|successful|account|bal|avail)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // 7. "at <merchant>" or "paid <merchant>"
     RegExp(
-      r'\b(?:at|paid)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|account|bal)|\.|\n|<|$)',
+      r'\b(?:at|paid)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|was|has|successful|account|bal|avail)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // 8. "to <merchant>"
     RegExp(
-      r'\bto[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|account|bal)|\.|\n|<|$)',
+      r'\bto[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|refno|rrn|upi|with|for|is|was|has|successful|account|bal|avail)|\.|\n|<|$)',
       caseSensitive: false,
     ),
   ];
@@ -400,9 +443,21 @@ class BankEmailParser {
 
     final isDebit = _determineIsDebit(combined);
 
-    final match = _amountPrefixRegex.firstMatch(combined) ??
-        _amountPostfixRegex.firstMatch(combined) ??
-        _verbAmountRegex.firstMatch(combined);
+    // Try verb-linked amount first (e.g. "debited by 320.00" or "paid ₹350.00")
+    // as it explicitly matches the transaction rather than an account balance
+    var match = _verbAmountRegex.firstMatch(combined);
+
+    if (match == null) {
+      // Strip balance numbers from consideration so remaining balance isn't mistaken for spend
+      final noBalanceText = combined.replaceAll(
+        RegExp(r'\b(?:Avl\.?|Avail\.?|Available|Bal\.?|Balance|Limit)\s*:?\s*(?:₹|rs\.?|inr)?\s*[\d,]+(?:\.\d{1,2})?', caseSensitive: false),
+        '',
+      );
+      match = _amountPrefixRegex.firstMatch(noBalanceText) ??
+          _amountPostfixRegex.firstMatch(noBalanceText) ??
+          _amountPrefixRegex.firstMatch(combined) ??
+          _amountPostfixRegex.firstMatch(combined);
+    }
     if (match == null) return null;
 
     final rawAmountStr = match.group(1)?.replaceAll(',', '') ?? '';
@@ -441,15 +496,6 @@ class BankEmailParser {
       }
     }
 
-    if (merchant.isEmpty) {
-      final upiInfoMatch = _upiInfoRegex.firstMatch(cleanBody) ?? _upiInfoRegex.firstMatch(cleanSubject);
-      if (upiInfoMatch != null && upiInfoMatch.group(1) != null) {
-        final cand = _cleanMerchant(upiInfoMatch.group(1)!);
-        if (cand.isNotEmpty && !_isNoise(cand)) {
-          merchant = cand;
-        }
-      }
-    }
 
     // Priority 1: Check table key-value format in body text
     if (merchant.isEmpty) {
@@ -509,6 +555,17 @@ class BankEmailParser {
           }
         }
         if (merchant.isNotEmpty) break;
+      }
+    }
+
+    // Priority 4.5: Check UPI Info / Details tag (e.g. "Info: UPI*ZOMATO" or "Info: UPI/STARBUCKS")
+    if (merchant.isEmpty) {
+      final upiInfoMatch = _upiInfoRegex.firstMatch(cleanBody) ?? _upiInfoRegex.firstMatch(cleanSubject);
+      if (upiInfoMatch != null && upiInfoMatch.group(1) != null) {
+        final cand = _cleanMerchant(upiInfoMatch.group(1)!);
+        if (cand.isNotEmpty && !_isNoise(cand)) {
+          merchant = cand;
+        }
       }
     }
 
@@ -574,8 +631,10 @@ class BankEmailParser {
     final stopPatterns = [
       RegExp(r'\b(?:RRN|UPI Ref(?: ID| no)?|Ref No|Refno|txn id|Ref)[ \t]*:?[ \t]*\d+.*$', caseSensitive: false),
       RegExp(r'\b(?:Best|Team slice|Digital safety|To talk to us).*$', caseSensitive: false),
-      RegExp(r'\b(?:Avl\.?|Available)\s*(?:Bal\.?|Balance).*$', caseSensitive: false),
-      RegExp(r'\b(?:successfully|successful).*$', caseSensitive: false),
+      RegExp(r'\b(?:Avl\.?|Avail\.?|Available|Avlbl)\s*(?:Bal\.?|Balance)?.*$', caseSensitive: false),
+      RegExp(r'\b(?:Bal\.?|Balance)\s*:?.*$', caseSensitive: false),
+      RegExp(r'\b(?:A\/c|Account)\s*(?:no\.?|ending)?\s*\d+.*$', caseSensitive: false),
+      RegExp(r'\b(?:was|is|has been|has|successfully|successful)\b.*$', caseSensitive: false),
       RegExp(r'\b(?:If not done by you|Not you\?|Call|T&C).*$', caseSensitive: false),
       RegExp(r'\b(?:on|using|via|with|through|for|ref)\s+\d+.*$', caseSensitive: false),
       RegExp(r'\b(?:on|dated)\s+\d{1,2}[-/ ]?[A-Za-z0-9]+.*$', caseSensitive: false),

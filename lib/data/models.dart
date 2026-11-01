@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 
 import '../core/dates.dart';
+import '../core/slice_email_parser.dart';
 
 enum Direction { debit, credit }
 
@@ -390,7 +391,7 @@ class Settings {
     this.cycleAdjustments = const {},
     this.emailSyncAddress = '',
     this.emailSyncAppPassword = '',
-    this.emailSyncSender = 'noreply@slice.bank.in',
+    this.emailSyncSender = BankPresets.defaultSendersString,
     this.emailSyncEnabled = false,
     this.emailSyncLastSyncedMs,
     this.smsSyncEnabled = false,
@@ -523,7 +524,7 @@ class Settings {
     rolloverUnspent: true,
     emailSyncAddress: '',
     emailSyncAppPassword: '',
-    emailSyncSender: 'noreply@slice.bank.in',
+    emailSyncSender: BankPresets.defaultSendersString,
     emailSyncEnabled: false,
     emailSyncLastSyncedMs: null,
   );

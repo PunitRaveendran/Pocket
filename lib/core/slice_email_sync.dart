@@ -21,7 +21,15 @@ typedef SliceSyncResult = BankSyncResult;
 /// On-device IMAP sync service to fetch and parse bank and UPI transaction emails
 /// (Slice, HDFC, SBI, ICICI, Axis, Kotak, Jupiter/Fi, Federal Bank, etc.).
 class BankEmailSyncService {
-  const BankEmailSyncService();
+  const BankEmailSyncService({
+    this.imapHost = 'imap.gmail.com',
+    this.imapPort = 993,
+    this.isSecure = true,
+  });
+
+  final String imapHost;
+  final int imapPort;
+  final bool isSecure;
 
   Future<BankSyncResult> sync({
     required String email,
@@ -45,11 +53,14 @@ class BankEmailSyncService {
         .where((s) => s.isNotEmpty)
         .toList();
 
-    final senders = rawSenders.isEmpty ? BankPresets.allSenders : rawSenders;
+    final isLegacySingleSender =
+        rawSenders.length == 1 && rawSenders.first == 'noreply@slice.bank.in';
+    final senders =
+        (rawSenders.isEmpty || isLegacySingleSender) ? BankPresets.allSenders : rawSenders;
 
     final client = ImapClient(isLogEnabled: false);
     try {
-      await client.connectToServer('imap.gmail.com', 993, isSecure: true);
+      await client.connectToServer(imapHost, imapPort, isSecure: isSecure);
       try {
         await client.login(cleanEmail, cleanPassword);
       } catch (loginError) {
@@ -64,7 +75,7 @@ class BankEmailSyncService {
       // Optimize: Only search messages from past 45 days to avoid downloading months of old emails
       final sinceDate = DateTime.now().subtract(const Duration(days: 45));
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      final formattedSince = '${sinceDate.day}-${months[sinceDate.month - 1]}-${sinceDate.year}';
+      final formattedSince = '${sinceDate.day.toString().padLeft(2, '0')}-${months[sinceDate.month - 1]}-${sinceDate.year}';
 
       final parsedList = <ParsedEmailTransaction>[];
       final seenMessageIds = <String>{};
@@ -99,14 +110,17 @@ class BankEmailSyncService {
           // emails before downloading full message bodies over the network.
           final headerRes = await client.fetchMessages(
             seq,
-            '(UID BODY.PEEK[HEADER.FIELDS (Message-ID)])',
+            '(UID ENVELOPE)',
           );
 
           final unprocessedSeq = MessageSequence();
           final messageIdBySeqId = <int, String>{};
 
           for (final msg in headerRes.messages) {
-            final rawId = msg.getHeaderValue('Message-ID') ?? msg.uid?.toString();
+            final rawId = msg.envelope?.messageId ??
+                msg.getHeaderValue('Message-ID') ??
+                msg.getHeaderValue('message-id') ??
+                msg.uid?.toString();
             final messageId = rawId?.trim();
             final seqId = msg.sequenceId;
 
@@ -136,7 +150,9 @@ class BankEmailSyncService {
           for (final msg in fetchRes.messages) {
             final seqId = msg.sequenceId;
             final messageId = (seqId != null ? messageIdBySeqId[seqId] : null) ??
+                msg.envelope?.messageId ??
                 msg.getHeaderValue('Message-ID')?.trim() ??
+                msg.getHeaderValue('message-id')?.trim() ??
                 msg.uid?.toString();
 
             final subject = msg.decodeSubject() ?? '';
@@ -209,7 +225,7 @@ class BankEmailSyncService {
 
     final client = ImapClient(isLogEnabled: false);
     try {
-      await client.connectToServer('imap.gmail.com', 993, isSecure: true);
+      await client.connectToServer(imapHost, imapPort, isSecure: isSecure);
       await client.login(cleanEmail, cleanPassword);
       await client.selectInbox();
 
