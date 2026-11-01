@@ -129,15 +129,15 @@ class BankEmailParser {
     caseSensitive: false,
   );
 
-  // Table key-value receiver (Debit: e.g. "To\nAkhil Asok\nRRN" or "Paid to: Akhil Asok" or "To   Akhil Asok" or "Beneficiary: ...")
+  // Table key-value receiver (Debit: e.g. "To\nAkhil Asok\nRRN" or "Paid to: Akhil Asok" or "To Akhil Asok RRN" or "Beneficiary: ...")
   static final _tableReceiverRegex = RegExp(
-    r'(?:^|\n)[ \t]*(?:To|Paid to|Transfer to|Sent to|Beneficiary|Receiver|Merchant)[ \t]*(?:[:\n\r]+|[ \t]{2,}|\t)[ \t]*([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*)',
+    r'(?:^|[\n\r]|\bTransaction date[^\n\r]*?)[ \t]*(?:To|Paid to|Transfer to|Sent to|Beneficiary|Receiver|Merchant)[ \t]*[:\t \n\r]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]*(?:\n|\r|\bRRN\b|\bUPI Ref\b|\bRef No\b|\btxn id\b|\bRef\b|\bBest\b|\bTeam\b|\bAvl\.?\b|\$))',
     caseSensitive: false,
   );
 
-  // Table key-value sender (Credit: e.g. "From\nSwiggy\nRRN" or "Received from: Sneha" or "From   Swiggy")
+  // Table key-value sender (Credit: e.g. "From\nSwiggy\nRRN" or "From SNEH NIPOON SHETH RRN" or "Received from: Sneha")
   static final _tableSenderRegex = RegExp(
-    r'(?:^|\n)[ \t]*(?:From|Received from|Refund from|Sender)[ \t]*(?:[:\n\r]+|[ \t]{2,}|\t)[ \t]*([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*)',
+    r'(?:^|[\n\r]|\bTransaction date[^\n\r]*?)[ \t]*(?:From|Received from|Refund from|Sender|Transfer from)[ \t]*[:\t \n\r]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]*(?:\n|\r|\bRRN\b|\bUPI Ref\b|\bRef No\b|\btxn id\b|\bRef\b|\bBest\b|\bTeam\b|\bAvl\.?\b|\$))',
     caseSensitive: false,
   );
 
@@ -196,32 +196,32 @@ class BankEmailParser {
   static final _inlineDebitRegexes = [
     // "spent on your HDFC Bank Card ending 1234 at AMAZON INDIA on 29-10-2026"
     RegExp(
-      r'spent on [^.\n]+ at ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|with|ref|avail)|\.|\n|<|$)',
+      r'spent on [^.\n]+ at ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:on|using|via|with|ref|rrn|avail)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // "UPI transaction of Rs. 450.00 to SWIGGY"
     RegExp(
-      r'UPI transaction of [^.\n]+ to ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with)|\.|\n|<|$)',
+      r'UPI transaction of [^.\n]+ to ([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // "debited ... to/towards/transfer to/at <merchant>" (e.g. HDFC, SBI, Axis)
     RegExp(
-      r'debited [^.\n]*?(?:transfer to|towards UPI payment to|towards|to|at)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with|txn|from|avail)|\.|\n|<|$)',
+      r'debited [^.\n]*?(?:transfer to|towards UPI payment to|towards|to|at)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with|txn|from|avail)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // "paid to / sent to / transfer to / towards <merchant>"
     RegExp(
-      r'(?:paid to|sent to|transfer to|towards payment to|towards)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with|for|is|account)|\.|\n|<|$)',
+      r'(?:paid to|sent to|transfer to|towards payment to|towards)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with|for|is|account)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // "at <merchant>" or "paid <merchant>"
     RegExp(
-      r'\b(?:at|paid)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with|for|is|account)|\.|\n|<|$)',
+      r'\b(?:at|paid)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with|for|is|account)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // "to <merchant>"
     RegExp(
-      r'\bto[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with|for|is|account)|\.|\n|<|$)',
+      r'\bto[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with|for|is|account)|\.|\n|<|$)',
       caseSensitive: false,
     ),
   ];
@@ -230,19 +230,65 @@ class BankEmailParser {
   static final _inlineCreditRegexes = [
     // "credited ... by transfer from / from / by <sender>"
     RegExp(
-      r'credited [^.\n]*?(?:by transfer from|from transfer from|from|by)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with|txn)|\.|\n|<|$)',
+      r'credited [^.\n]*?(?:by transfer from|from transfer from|from|by)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with|txn)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     // "received from / refund from / cashback from / transfer from <sender>"
     RegExp(
-      r'(?:received from|refund from|cashback from|transfer from)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with|for|is|account)|\.|\n|<|$)',
+      r'(?:received from|refund from|cashback from|transfer from)[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with|for|is|account)|\.|\n|<|$)',
       caseSensitive: false,
     ),
     RegExp(
-      r'\bfrom[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|upi|with|for|is|account)|\.|\n|<|$)',
+      r'\bfrom[ \t]+([A-Za-z0-9&.\-]+(?:[ \t]+[A-Za-z0-9&.\-]+)*?)(?:[ \t]+(?:using|on|via|ref|rrn|upi|with|for|is|account)|\.|\n|<|$)',
       caseSensitive: false,
     ),
   ];
+
+  /// Strips HTML tags and normalizes whitespace while preserving line structure.
+  static String _htmlToPlainText(String html) {
+    if (!html.contains('<') || !html.contains('>')) {
+      return html;
+    }
+
+    var text = html;
+    // Strip styles and scripts
+    text = text.replaceAll(RegExp(r'<style[^>]*>[\s\S]*?<\/style>', caseSensitive: false), ' ');
+    text = text.replaceAll(RegExp(r'<script[^>]*>[\s\S]*?<\/script>', caseSensitive: false), ' ');
+
+    // Break lines at block elements and table cells
+    text = text.replaceAll(RegExp(r'<br\s*\/?>', caseSensitive: false), '\n');
+    text = text.replaceAll(RegExp(r'<\/(?:p|div|tr|table|h[1-6]|li)>', caseSensitive: false), '\n');
+    text = text.replaceAll(RegExp(r'<\/(?:td|th)>', caseSensitive: false), '\t');
+
+    // Strip remaining tags
+    text = text.replaceAll(RegExp(r'<[^>]+>'), ' ');
+
+    // Decode HTML entities
+    text = text
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&#8377;', '₹')
+        .replaceAll('&inr;', '₹');
+
+    text = text.replaceAllMapped(RegExp(r'&#(\d+);'), (m) {
+      final code = int.tryParse(m.group(1)!);
+      return code != null ? String.fromCharCode(code) : m.group(0)!;
+    });
+
+    final lines = text.split(RegExp(r'\r?\n'));
+    final cleaned = <String>[];
+    for (final l in lines) {
+      final c = l.replaceAll(RegExp(r'[ \t]+'), ' ').trim();
+      if (c.isNotEmpty) {
+        cleaned.add(c);
+      }
+    }
+    return cleaned.join('\n');
+  }
 
   static ParsedEmailTransaction? parse({
     required String subject,
@@ -250,7 +296,9 @@ class BankEmailParser {
     DateTime? emailDate,
     String? messageId,
   }) {
-    final combined = '$subject\n$bodyText'.trim();
+    final cleanSubject = _htmlToPlainText(subject).trim();
+    final cleanBody = _htmlToPlainText(bodyText).trim();
+    final combined = '$cleanSubject\n$cleanBody'.trim();
     if (combined.isEmpty) return null;
 
     final isDebit = _debitRegex.hasMatch(combined);
@@ -270,7 +318,7 @@ class BankEmailParser {
     var merchant = '';
 
     // Priority 0: Check UPI Info tag format (e.g. "Info: UPI*ZOMATO*...")
-    final upiInfoMatch = _upiInfoRegex.firstMatch(bodyText) ?? _upiInfoRegex.firstMatch(subject);
+    final upiInfoMatch = _upiInfoRegex.firstMatch(cleanBody) ?? _upiInfoRegex.firstMatch(cleanSubject);
     if (upiInfoMatch != null && upiInfoMatch.group(1) != null) {
       final cand = _cleanMerchant(upiInfoMatch.group(1)!);
       if (cand.isNotEmpty && !_isNoise(cand)) {
@@ -280,8 +328,14 @@ class BankEmailParser {
 
     // Priority 1: Check table key-value format in body text
     if (merchant.isEmpty) {
-      final tableRegex = isDebit ? _tableReceiverRegex : _tableSenderRegex;
-      final tableMatch = tableRegex.firstMatch(bodyText);
+      final primaryTableRegex = isDebit ? _tableReceiverRegex : _tableSenderRegex;
+      final secondaryTableRegex = isDebit ? _tableSenderRegex : _tableReceiverRegex;
+
+      var tableMatch = primaryTableRegex.firstMatch(cleanBody);
+      if (tableMatch == null || tableMatch.group(1) == null) {
+        tableMatch = secondaryTableRegex.firstMatch(cleanBody);
+      }
+
       if (tableMatch != null && tableMatch.group(1) != null) {
         final cand = _cleanMerchant(tableMatch.group(1)!);
         if (cand.isNotEmpty && !_isNoise(cand)) {
@@ -304,9 +358,9 @@ class BankEmailParser {
     final inlineRegexes = isDebit ? _inlineDebitRegexes : _inlineCreditRegexes;
 
     // Priority 3: Look in the subject line
-    if (merchant.isEmpty && subject.isNotEmpty) {
+    if (merchant.isEmpty && cleanSubject.isNotEmpty) {
       for (final r in inlineRegexes) {
-        final m = r.firstMatch(subject);
+        final m = r.firstMatch(cleanSubject);
         if (m != null && m.group(1) != null) {
           final cand = _cleanMerchant(m.group(1)!);
           if (cand.isNotEmpty && !_isNoise(cand)) {
@@ -320,7 +374,7 @@ class BankEmailParser {
     // Priority 4: Look inline in body text
     if (merchant.isEmpty) {
       for (final r in inlineRegexes) {
-        for (final m in r.allMatches(bodyText)) {
+        for (final m in r.allMatches(cleanBody)) {
           if (m.group(1) != null) {
             final cand = _cleanMerchant(m.group(1)!);
             if (cand.isNotEmpty && !_isNoise(cand)) {
@@ -340,7 +394,7 @@ class BankEmailParser {
 
     final occurredAt = _extractDate(combined, emailDate) ?? emailDate ?? DateTime.now();
 
-    String snippet = subject.isNotEmpty ? subject : combined.substring(0, combined.length.clamp(0, 100));
+    String snippet = cleanSubject.isNotEmpty ? cleanSubject : combined.substring(0, combined.length.clamp(0, 100));
     final rrnMatch = _rrnRegex.firstMatch(combined);
     if (rrnMatch != null && rrnMatch.group(1) != null) {
       final rrn = rrnMatch.group(1)!;
@@ -377,7 +431,7 @@ class BankEmailParser {
       return isDebit ? 'Kotak Payment' : 'Kotak Credit';
     }
     if (lower.contains('slice')) {
-      return isDebit ? 'Slice Payment' : 'Slice Refund';
+      return isDebit ? 'Slice Payment' : 'Slice Credit';
     }
     if (lower.contains('jupiter')) {
       return isDebit ? 'Jupiter Payment' : 'Jupiter Credit';
@@ -390,12 +444,25 @@ class BankEmailParser {
 
   static String _cleanMerchant(String raw) {
     var s = raw.trim();
+
+    // Strip trailing metadata or RRN if captured
+    final stopPatterns = [
+      RegExp(r'\b(?:RRN|UPI Ref(?: ID| no)?|Ref No|txn id|Ref)[ \t]*:?[ \t]*\d+.*$', caseSensitive: false),
+      RegExp(r'\b(?:Best|Team slice|Digital safety|To talk to us).*$', caseSensitive: false),
+      RegExp(r'\b(?:Avl\.?|Available)\s*(?:Bal\.?|Balance).*$', caseSensitive: false),
+      RegExp(r'\b(?:on|using|via|with|through|for|ref)\s+\d+.*$', caseSensitive: false),
+      RegExp(r'\b(?:on|dated)\s+\d{1,2}[-/ ]?[A-Za-z0-9]+.*$', caseSensitive: false),
+    ];
+    for (final sp in stopPatterns) {
+      s = s.replaceAll(sp, '');
+    }
+
     // Strip trailing punctuation
-    s = s.replaceAll(RegExp(r'[\s.,;:\-_]+$'), '');
-    s = s.replaceAll(RegExp(r'^[\s.,;:\-_]+'), '');
+    s = s.replaceAll(RegExp(r'[\s.,;:\-_|/\\]+$'), '');
+    s = s.replaceAll(RegExp(r'^[\s.,;:\-_|/\\]+'), '');
     // Collapse spaces
     s = s.replaceAll(RegExp(r'\s+'), ' ');
-    return s;
+    return s.trim();
   }
 
   static bool _isNoise(String s) {
@@ -416,6 +483,9 @@ class BankEmailParser {
         lower.contains('credit card') ||
         lower.contains('debit card') ||
         lower.contains('slice app') ||
+        lower.contains('talk to us') ||
+        lower.contains('drop an email') ||
+        lower.contains('team slice') ||
         lower.startsWith('xx') ||
         lower.startsWith('****') ||
         lower == 'rrn' ||

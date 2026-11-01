@@ -110,7 +110,14 @@ class BankEmailSyncService {
             }
 
             final subject = msg.decodeSubject() ?? '';
-            final bodyText = msg.decodeContentText() ?? '';
+            final plainText = msg.decodeTextPlainPart();
+            final htmlText = msg.decodeTextHtmlPart();
+            final rawText = msg.decodeContentText();
+            final bodyText = (plainText != null && plainText.trim().isNotEmpty)
+                ? plainText
+                : (htmlText != null && htmlText.trim().isNotEmpty)
+                    ? htmlText
+                    : (rawText ?? '');
             final date = msg.decodeDate();
 
             final parsed = BankEmailParser.parse(

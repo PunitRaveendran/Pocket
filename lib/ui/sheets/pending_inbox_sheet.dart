@@ -237,12 +237,37 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      item.merchant,
-                      style: TypeScale.title(t.ink).copyWith(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Row(
+                      children: [
+                        if (item.direction == Direction.credit) ...[
+                          Text(
+                            'From: ',
+                            style: TypeScale.title(t.inkSoft).copyWith(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ] else ...[
+                          Text(
+                            'To: ',
+                            style: TypeScale.title(t.inkSoft).copyWith(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        Expanded(
+                          child: Text(
+                            item.merchant,
+                            style: TypeScale.title(t.ink).copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Row(
@@ -255,12 +280,12 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: t.accentTint,
+                            color: item.direction == Direction.credit ? t.accentTint : t.rule.withValues(alpha: 0.3),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            'Slice UPI',
-                            style: TypeScale.caption(t.accent).copyWith(
+                            item.direction == Direction.credit ? 'Received via Slice' : 'Paid via Slice',
+                            style: TypeScale.caption(item.direction == Direction.credit ? t.accent : t.inkSoft).copyWith(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
                             ),
@@ -348,7 +373,9 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
             style: TypeScale.body(t.ink).copyWith(fontSize: 14),
             cursorColor: t.accent,
             decoration: InputDecoration(
-              hintText: 'e.g. Canteen lunch, Xerox, Chai',
+              hintText: item.direction == Direction.credit
+                  ? 'e.g. Received from ${item.merchant}'
+                  : 'e.g. Paid to ${item.merchant}',
               hintStyle: TypeScale.caption(t.inkSoft),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -479,12 +506,16 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
 
   Future<void> _approveTopUp(PendingTransaction item) async {
     final customWhatFor = _whatForControllers[item.id]?.text.trim() ?? '';
-    final note = customWhatFor.isNotEmpty ? customWhatFor : 'Stipend Top-Up via Slice';
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : item.merchant;
+    final note = customWhatFor.isNotEmpty
+        ? customWhatFor
+        : (item.merchant.isNotEmpty ? 'From ${item.merchant}' : 'Stipend Top-Up via Slice');
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(
             item,
             categoryId: 'income',
             bucket: Bucket.daily,
+            merchant: effectiveMerchant,
             note: note,
           );
       if (mounted) {
@@ -583,7 +614,7 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
     final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : item.merchant;
     final note = customWhatFor.isNotEmpty
         ? (item.merchant != customWhatFor ? 'Slice · ${item.merchant}' : 'Slice UPI')
-        : 'Slice UPI';
+        : (item.direction == Direction.credit ? 'From ${item.merchant}' : 'Slice · ${item.merchant}');
 
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(

@@ -270,5 +270,139 @@ INR 2,500.00 is credited to your account **1234 on 29-OCT-26 by transfer from Sn
       expect(result.merchant, 'Sneha Sharma');
       expect(result.isDebit, isFalse);
     });
+
+    test('Parses inline Slice credit email from user screenshot', () {
+      const subject = 'Received ₹10 in your slice account';
+      const body = 'Hi Ankith, You have received ₹10 via UPI in your slice bank account xx8327. Avl. Bal. ₹160.23 Transaction date 30-Oct-26 From THADUR ABHINAV SIDDHARTH RRN 63033';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 1000);
+      expect(result.merchant, 'THADUR ABHINAV SIDDHARTH');
+      expect(result.isDebit, isFalse);
+    });
+
+    test('Parses multiline Slice credit email from user screenshot', () {
+      const subject = 'Received ₹10 in your slice account';
+      const body = '''
+slice
+
+Hi Ankith,
+
+You have received ₹10 via UPI in your slice bank account xx8327. Avl. Bal. ₹168.75
+
+Transaction date    30-Oct-26
+From                SNEH NIPOON SHETH
+RRN                 111038253278
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 1000);
+      expect(result.merchant, 'SNEH NIPOON SHETH');
+      expect(result.isDebit, isFalse);
+      expect(result.rawSnippet, contains('111038253278'));
+    });
+
+    test('Parses raw HTML Slice credit email', () {
+      const subject = 'Received ₹10 in your slice account';
+      const htmlBody = '''
+<!DOCTYPE html>
+<html>
+<body>
+  <div style="font-family:sans-serif;">
+    <p>Hi Ankith,</p>
+    <p>You have received ₹10 via UPI in your slice bank account xx8327. Avl. Bal. &#8377;168.75</p>
+    <table cellpadding="4">
+      <tr>
+        <td>Transaction date</td>
+        <td>30-Oct-26</td>
+      </tr>
+      <tr>
+        <td>From</td>
+        <td>SNEH NIPOON SHETH</td>
+      </tr>
+      <tr>
+        <td>RRN</td>
+        <td>111038253278</td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: htmlBody,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 1000);
+      expect(result.merchant, 'SNEH NIPOON SHETH');
+      expect(result.isDebit, isFalse);
+    });
+
+    test('Parses raw HTML Slice debit email', () {
+      const subject = 'Transaction alert: ₹30 debited from slice account';
+      const htmlBody = '''
+<!DOCTYPE html>
+<html>
+<body>
+  <p>Hi Ankith,</p>
+  <p>₹30 debited from your slice bank account xx8327 via UPI.</p>
+  <table>
+    <tr>
+      <td>Transaction date</td>
+      <td>29-Oct-26</td>
+    </tr>
+    <tr>
+      <td>To</td>
+      <td>Akhil Asok</td>
+    </tr>
+    <tr>
+      <td>RRN</td>
+      <td>630246906599</td>
+    </tr>
+  </table>
+  <p>Best, Team slice</p>
+</body>
+</html>
+''';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: htmlBody,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 3000);
+      expect(result.merchant, 'Akhil Asok');
+      expect(result.isDebit, isTrue);
+    });
+
+    test('Parses inline Slice debit email with trailing RRN and footer', () {
+      const subject = '';
+      const body = 'Hi Ankith, ₹30 debited from your slice bank account xx8327 via UPI. Transaction date 29-Oct-26 To Akhil Asok RRN 630246906599 Best, Team slice';
+
+      final result = BankEmailParser.parse(
+        subject: subject,
+        bodyText: body,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.amountPaise, 3000);
+      expect(result.merchant, 'Akhil Asok');
+      expect(result.isDebit, isTrue);
+    });
+
   });
 }
