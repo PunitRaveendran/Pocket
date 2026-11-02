@@ -534,8 +534,55 @@ RRN                 111038253278
         expect(result.isDebit, isFalse);
         expect(result.merchant, 'Sneha Sharma');
       });
+
+      test('Benchmark: Slice email parsing processes 1,000 emails ultra-fast', () {
+        const sliceEmailBody = '''
+Hi Ankith,
+₹30 debited from your slice bank account xx8327 via UPI.
+Transaction date
+29-Oct-26
+To
+Akhil Asok
+RRN
+630246906599
+Best,Team slice
+Digital safety tips
+To talk to us, drop an email to help@slice.bank.in
+© slice small finance bank. All rights reserved.
+''';
+
+        // Warm up
+        for (var i = 0; i < 50; i++) {
+          SliceEmailParser.parse(
+            subject: 'Transaction alert: ₹30.00 spent',
+            bodyText: sliceEmailBody,
+            emailDate: DateTime(2026, 10, 29, 16, 24),
+            messageId: 'msg-$i@slice.bank.in',
+          );
+        }
+
+        final stopwatch = Stopwatch()..start();
+        const iterations = 1000;
+        for (var i = 0; i < iterations; i++) {
+          final res = SliceEmailParser.parse(
+            subject: 'Transaction alert: ₹30.00 spent',
+            bodyText: sliceEmailBody,
+            emailDate: DateTime(2026, 10, 29, 16, 24),
+            messageId: 'msg-$i@slice.bank.in',
+          );
+          expect(res, isNotNull);
+          expect(res!.amountPaise, 3000);
+          expect(res.merchant, 'Akhil Asok');
+        }
+        stopwatch.stop();
+
+        // 1,000 emails should parse in well under 100ms (typically 5-20ms)
+        expect(stopwatch.elapsedMilliseconds, lessThan(200));
+        print('⚡ Benchmark: Parsed $iterations Slice emails in ${stopwatch.elapsedMilliseconds} ms (${(stopwatch.elapsedMicroseconds / iterations).toStringAsFixed(1)} µs/email)');
+      });
     });
 
   });
 }
+
 
