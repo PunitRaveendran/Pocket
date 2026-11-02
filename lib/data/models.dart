@@ -397,6 +397,7 @@ class Settings {
     this.emailSyncAddress = '',
     this.emailSyncAppPassword = '',
     this.emailSyncSender = BankPresets.defaultSendersString,
+    this.emailSyncActiveBanks = const ['slice'],
     this.emailSyncEnabled = false,
     this.emailSyncLastSyncedMs,
     this.smsSyncEnabled = false,
@@ -417,6 +418,7 @@ class Settings {
   final String emailSyncAddress;
   final String emailSyncAppPassword;
   final String emailSyncSender;
+  final List<String> emailSyncActiveBanks;
   final bool emailSyncEnabled;
   final int? emailSyncLastSyncedMs;
   final bool smsSyncEnabled;
@@ -427,6 +429,20 @@ class Settings {
 
   int get effectiveStipendPaise =>
       (stipendPaise - totalFixedDeductionsPaise).clamp(0, 999999999);
+
+  /// Resolves which bank sender email addresses to monitor based on active banks.
+  /// If active banks includes 'slice' only, this yields Slice senders exclusively.
+  List<String> get resolvedEmailSenders {
+    if (emailSyncActiveBanks.isNotEmpty) {
+      return BankPresets.sendersForBanks(emailSyncActiveBanks);
+    }
+    final raw = emailSyncSender
+        .split(RegExp(r'[,;]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    return raw.isNotEmpty ? raw : BankPresets.slice.senders;
+  }
 
   Settings copyWith({
     int? stipendPaise,
@@ -443,6 +459,7 @@ class Settings {
     String? emailSyncAddress,
     String? emailSyncAppPassword,
     String? emailSyncSender,
+    List<String>? emailSyncActiveBanks,
     bool? emailSyncEnabled,
     int? emailSyncLastSyncedMs,
     bool? smsSyncEnabled,
@@ -463,6 +480,7 @@ class Settings {
       emailSyncAddress: emailSyncAddress ?? this.emailSyncAddress,
       emailSyncAppPassword: emailSyncAppPassword ?? this.emailSyncAppPassword,
       emailSyncSender: emailSyncSender ?? this.emailSyncSender,
+      emailSyncActiveBanks: emailSyncActiveBanks ?? this.emailSyncActiveBanks,
       emailSyncEnabled: emailSyncEnabled ?? this.emailSyncEnabled,
       emailSyncLastSyncedMs: emailSyncLastSyncedMs ?? this.emailSyncLastSyncedMs,
       smsSyncEnabled: smsSyncEnabled ?? this.smsSyncEnabled,
@@ -488,6 +506,7 @@ class Settings {
           emailSyncAddress == other.emailSyncAddress &&
           emailSyncAppPassword == other.emailSyncAppPassword &&
           emailSyncSender == other.emailSyncSender &&
+          listEquals(emailSyncActiveBanks, other.emailSyncActiveBanks) &&
           emailSyncEnabled == other.emailSyncEnabled &&
           emailSyncLastSyncedMs == other.emailSyncLastSyncedMs &&
           smsSyncEnabled == other.smsSyncEnabled &&
@@ -509,6 +528,7 @@ class Settings {
         emailSyncAddress,
         emailSyncAppPassword,
         emailSyncSender,
+        Object.hashAll(emailSyncActiveBanks),
         emailSyncEnabled,
         emailSyncLastSyncedMs,
         smsSyncEnabled,
@@ -530,6 +550,7 @@ class Settings {
     emailSyncAddress: '',
     emailSyncAppPassword: '',
     emailSyncSender: BankPresets.defaultSendersString,
+    emailSyncActiveBanks: ['slice'],
     emailSyncEnabled: false,
     emailSyncLastSyncedMs: null,
   );

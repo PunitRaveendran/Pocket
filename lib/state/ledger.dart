@@ -353,10 +353,17 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
 
     _isSyncingSlice = true;
     try {
+      final activeSenders = s.resolvedEmailSenders;
       final result = await _emailSyncService.sync(
         email: s.emailSyncAddress,
         appPassword: s.emailSyncAppPassword,
-        sender: s.emailSyncSender.trim().isEmpty ? BankPresets.defaultSendersString : s.emailSyncSender.trim(),
+        activeSenders: activeSenders,
+        lastSyncedAt: force
+            ? null
+            : (s.emailSyncLastSyncedMs != null
+                ? DateTime.fromMillisecondsSinceEpoch(s.emailSyncLastSyncedMs!)
+                : null),
+        fullResync: force,
         isAlreadyProcessed: (msgId) => _repo.isEmailMessageProcessed(msgId),
       );
 
@@ -471,7 +478,7 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
 
   Future<SliceSyncResult> clearPendingAndResync() async {
     await _repo.clearPendingInbox();
-    return syncSliceEmails();
+    return syncSliceEmails(force: true);
   }
 
   Future<Txn> approveInboxTransaction(

@@ -17,7 +17,10 @@ class FakeBankEmailSyncService extends BankEmailSyncService {
   Future<BankSyncResult> sync({
     required String email,
     required String appPassword,
-    String sender = 'noreply@slice.bank.in',
+    List<String>? activeSenders,
+    String? sender,
+    DateTime? lastSyncedAt,
+    bool fullResync = false,
     required Future<bool> Function(String messageId) isAlreadyProcessed,
   }) async {
     return const BankSyncResult(success: true, newCount: 0);

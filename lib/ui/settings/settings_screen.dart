@@ -565,12 +565,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                  leading: Icon(Icons.mark_email_read_outlined, size: 18, color: t.inkSoft),
-                  title: Text('Monitored Banks & Senders', style: TypeScale.body(t.ink)),
+                  leading: Icon(Icons.account_balance_outlined, size: 18, color: t.accent),
+                  title: Text('Active Banks to Monitor', style: TypeScale.body(t.ink)),
                   subtitle: Text(
-                    s.emailSyncSender.isEmpty ? 'All popular banks' : s.emailSyncSender,
+                    s.emailSyncActiveBanks.length == 1 && s.emailSyncActiveBanks.contains('slice')
+                        ? 'Slice Bank Only (2 senders) · Ultra-fast sync ⚡'
+                        : '${s.emailSyncActiveBanks.length} banks active (${s.resolvedEmailSenders.length} senders)',
+                    style: TypeScale.caption(s.emailSyncActiveBanks.length == 1 ? t.accent : t.inkSoft).copyWith(
+                      fontWeight: s.emailSyncActiveBanks.length == 1 ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: t.accentTint,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          s.emailSyncActiveBanks.length == 1 && s.emailSyncActiveBanks.contains('slice')
+                              ? 'Slice ⚡'
+                              : '${s.emailSyncActiveBanks.length} Banks',
+                          style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const SizedBox(width: Space.x1),
+                      Icon(Icons.chevron_right_rounded, size: 20, color: t.inkSoft),
+                    ],
+                  ),
+                  onTap: () => _showBankSelectorSheet(context, ref, s, t),
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                  leading: Icon(Icons.bolt_rounded, size: 18, color: t.accent),
+                  title: Text('Sync Engine', style: TypeScale.body(t.ink)),
+                  subtitle: Text(
+                    s.emailSyncLastSyncedMs != null
+                        ? 'Incremental Delta Active (fetches last 48h) · Instant ⚡'
+                        : 'Initial Lookback Mode (searches past 45 days)',
                     style: TypeScale.caption(t.inkSoft),
-                    maxLines: 2,
+                  ),
+                  trailing: s.emailSyncLastSyncedMs != null
+                      ? TextButton(
+                          onPressed: _isSyncingSlice ? null : () => _triggerManualSync(context, ref, force: true),
+                          child: Text('Force 45d', style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700)),
+                        )
+                      : null,
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
+                  leading: Icon(Icons.tune_rounded, size: 18, color: t.inkSoft),
+                  title: Text('Custom Senders & Advanced', style: TypeScale.body(t.ink)),
+                  subtitle: Text(
+                    s.emailSyncSender.isEmpty ? 'Using active bank defaults' : s.emailSyncSender,
+                    style: TypeScale.caption(t.inkSoft),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   trailing: Icon(Icons.edit_outlined, size: 18, color: t.inkSoft),
@@ -598,7 +649,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   trailing: _isSyncingSlice
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                       : null,
-                  onTap: _isSyncingSlice ? null : () => _triggerManualSync(context, ref),
+                  onTap: _isSyncingSlice ? null : () => _triggerManualSync(context, ref, force: false),
                 ),
               ],
             ),
@@ -1783,10 +1834,197 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _triggerManualSync(BuildContext context, WidgetRef ref) async {
+  Future<void> _showBankSelectorSheet(
+    BuildContext context,
+    WidgetRef ref,
+    Settings settings,
+    PaperTokens t,
+  ) async {
+    final selectedBankIds = settings.emailSyncActiveBanks.toSet();
+    final banks = BankPresets.all;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: t.paper,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final activeCount = selectedBankIds.length;
+            final isSliceOnly = selectedBankIds.length == 1 && selectedBankIds.contains('slice');
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(top: Space.x4, bottom: Space.x3),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: t.rule,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: Space.x3),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Active Banks to Monitor', style: TypeScale.heading(t.ink)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: isSliceOnly ? t.accentTint : t.rule.withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              isSliceOnly ? 'Slice Only ⚡' : '$activeCount Active',
+                              style: TypeScale.caption(isSliceOnly ? t.accent : t.ink).copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: Space.x1),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                      child: Text(
+                        'Select only the banks you actively use. Monitoring fewer banks makes sync lightning-fast.',
+                        style: TypeScale.caption(t.inkSoft),
+                      ),
+                    ),
+                    const SizedBox(height: Space.x2),
+                    // Quick Action Buttons
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                      child: Row(
+                        children: [
+                          ActionChip(
+                            avatar: Icon(Icons.flash_on_rounded, size: 16, color: isSliceOnly ? Colors.white : t.accent),
+                            label: Text(
+                              'Slice Only ⚡',
+                              style: TextStyle(
+                                color: isSliceOnly ? Colors.white : t.ink,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            backgroundColor: isSliceOnly ? t.accent : t.accentTint,
+                            side: BorderSide.none,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            onPressed: () {
+                              setSheetState(() {
+                                selectedBankIds.clear();
+                                selectedBankIds.add('slice');
+                              });
+                            },
+                          ),
+                          const SizedBox(width: Space.x2),
+                          ActionChip(
+                            label: Text(
+                              'All Banks',
+                              style: TextStyle(color: t.ink, fontWeight: FontWeight.w500),
+                            ),
+                            backgroundColor: t.card,
+                            side: BorderSide(color: t.rule),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            onPressed: () {
+                              setSheetState(() {
+                                selectedBankIds.addAll(banks.map((b) => b.id));
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: Space.x2),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(ctx).size.height * 0.55,
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: banks.length,
+                        separatorBuilder: (_, _) => Hairline(indent: Space.margin),
+                        itemBuilder: (ctx, i) {
+                          final bank = banks[i];
+                          final isChecked = selectedBankIds.contains(bank.id);
+                          return CheckboxListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                            value: isChecked,
+                            activeColor: t.accent,
+                            checkColor: t.paper,
+                            title: Text(
+                              bank.displayName,
+                              style: TypeScale.body(t.ink).copyWith(
+                                fontWeight: isChecked ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${bank.senders.length} sender address${bank.senders.length > 1 ? 'es' : ''} (${bank.senders.first})',
+                              style: TypeScale.caption(t.inkSoft),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onChanged: (val) {
+                              setSheetState(() {
+                                if (val == true) {
+                                  selectedBankIds.add(bank.id);
+                                } else {
+                                  if (selectedBankIds.length > 1) {
+                                    selectedBankIds.remove(bank.id);
+                                  }
+                                }
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: Space.x2),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: () async {
+                            final updated = selectedBankIds.isEmpty ? ['slice'] : selectedBankIds.toList();
+                            await ref.read(ledgerProvider.notifier).updateSettings(
+                              settings.copyWith(emailSyncActiveBanks: updated),
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: t.accent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text('Save Active Banks', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _triggerManualSync(BuildContext context, WidgetRef ref, {bool force = false}) async {
     setState(() => _isSyncingSlice = true);
     try {
-      final res = await ref.read(ledgerProvider.notifier).syncSliceEmails(force: true);
+      final res = await ref.read(ledgerProvider.notifier).syncSliceEmails(force: force);
       if (context.mounted) {
         if (res.success) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1794,7 +2032,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               content: Text(
                 res.newCount > 0
                     ? 'Sync complete! Found ${res.newCount} new bank transaction${res.newCount > 1 ? 's' : ''}. Check the Today tab.'
-                    : 'Sync complete. No new bank transactions found.',
+                    : (force
+                        ? 'Full 45-day sync complete. No new transactions found.'
+                        : 'Fast delta sync complete in milliseconds! Up to date ⚡'),
               ),
             ),
           );

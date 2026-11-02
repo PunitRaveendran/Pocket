@@ -271,5 +271,55 @@ void main() {
       final memorized = await repo.getMerchantCategory('Starbucks');
       expect(memorized, 'food');
     });
+
+    test('Slice-only active bank configuration resolves strictly to Slice senders', () {
+      const sliceOnlySettings = Settings(
+        stipendPaise: 250000,
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+        emailSyncActiveBanks: ['slice'],
+      );
+
+      final senders = sliceOnlySettings.resolvedEmailSenders;
+      expect(senders.length, 2);
+      expect(senders, contains('noreply@slice.bank.in'));
+      expect(senders, contains('alerts@sliceit.com'));
+      // Must NOT contain other bank senders like HDFC or SBI
+      expect(senders.any((s) => s.contains('hdfc')), isFalse);
+      expect(senders.any((s) => s.contains('sbi')), isFalse);
+    });
+
+    test('Multiple active banks configuration resolves combined senders', () {
+      const multiBankSettings = Settings(
+        stipendPaise: 250000,
+        cycleStartDay: 1,
+        hideAmounts: false,
+        onboarded: true,
+        emailSyncActiveBanks: ['slice', 'hdfc'],
+      );
+
+      final senders = multiBankSettings.resolvedEmailSenders;
+      expect(senders.length, 4);
+      expect(senders, contains('noreply@slice.bank.in'));
+      expect(senders, contains('alerts@hdfcbank.net'));
+      expect(senders.any((s) => s.contains('icici')), isFalse);
+    });
+
+    test('buildImapSearchCriteria generates correct standard IMAP query', () {
+      // 1 sender
+      final singleQuery = BankEmailSyncService.buildImapSearchCriteria(
+        ['noreply@slice.bank.in'],
+        '01-Nov-2026',
+      );
+      expect(singleQuery, 'FROM "noreply@slice.bank.in" SINCE 01-Nov-2026');
+
+      // 2 senders (Slice UPI + Slice card alerts)
+      final sliceQuery = BankEmailSyncService.buildImapSearchCriteria(
+        ['noreply@slice.bank.in', 'alerts@sliceit.com'],
+        '01-Nov-2026',
+      );
+      expect(sliceQuery, 'OR FROM "noreply@slice.bank.in" FROM "alerts@sliceit.com" SINCE 01-Nov-2026');
+    });
   });
 }

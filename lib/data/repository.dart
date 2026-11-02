@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../core/dates.dart';
 import '../core/keystore_service.dart';
 import '../core/money.dart';
+import '../core/slice_email_parser.dart';
 import 'database.dart';
 import 'models.dart';
 
@@ -225,7 +226,10 @@ class PocketRepository {
       cycleAdjustments: cycleAdjustments,
       emailSyncAddress: map['email_sync_address'] ?? '',
       emailSyncAppPassword: appPassword,
-      emailSyncSender: map['email_sync_sender'] ?? 'noreply@slice.bank.in',
+      emailSyncSender: map['email_sync_sender'] ?? BankPresets.defaultSendersString,
+      emailSyncActiveBanks: (map['email_sync_active_banks'] != null && map['email_sync_active_banks']!.isNotEmpty)
+          ? map['email_sync_active_banks']!.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+          : const ['slice'],
       emailSyncEnabled: map['email_sync_enabled'] == '1',
       emailSyncLastSyncedMs: int.tryParse(map['email_sync_last_synced_ms'] ?? ''),
       smsSyncEnabled: map['sms_sync_enabled'] == '1',
@@ -304,6 +308,7 @@ class PocketRepository {
       await db.delete('settings', where: 'key = ?', whereArgs: ['email_sync_app_password']);
     }
     await put('email_sync_sender', s.emailSyncSender);
+    await put('email_sync_active_banks', s.emailSyncActiveBanks.join(','));
     await put('email_sync_enabled', s.emailSyncEnabled ? '1' : '0');
     if (s.emailSyncLastSyncedMs != null) {
       await put('email_sync_last_synced_ms', '${s.emailSyncLastSyncedMs}');

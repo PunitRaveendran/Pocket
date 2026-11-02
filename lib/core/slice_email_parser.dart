@@ -112,6 +112,23 @@ class BankPresets {
 
   static List<String> get allSenders => all.expand((b) => b.senders).toList();
 
+  static List<String> sendersForBanks(List<String> bankIds) {
+    if (bankIds.isEmpty) return slice.senders;
+    final senders = <String>[];
+    for (final id in bankIds) {
+      final preset = all.firstWhere((b) => b.id == id, orElse: () => slice);
+      senders.addAll(preset.senders);
+    }
+    return senders.toSet().toList();
+  }
+
+  static BankPreset? presetById(String id) {
+    for (final b in all) {
+      if (b.id == id) return b;
+    }
+    return null;
+  }
+
   static const String defaultSendersString =
       'noreply@slice.bank.in, alerts@sliceit.com, alerts@hdfcbank.net, instalerts@hdfcbank.bank.in, alerts@sbi.co.in, donotreply@sbi.co.in, credit_cards@icicibank.com, alerts@icicibank.com, alerts@axisbank.com, creditcards@axisbank.com, alerts@kotak.com, noreply@kotak.com, support@jupiter.money, alerts@fi.money, alerts@federalbank.co.in, alerts@indusind.com, reachus@indusind.com, alerts@idfcfirstbank.com, pnbalerts@pnb.co.in, alert@canarabank.com';
 }
