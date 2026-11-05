@@ -212,7 +212,11 @@ class PocketRepository {
       cycleStartDay: int.parse(map['cycle_start_day'] ?? '${Settings.defaults.cycleStartDay}'),
       hideAmounts: map['hide_amounts'] == '1',
       onboarded: map['onboarded'] == '1',
-      pacingMode: map['pacing_mode'] == 'weekly' ? PacingMode.weekly : PacingMode.daily,
+      pacingMode: map['pacing_mode'] == 'monthly'
+          ? PacingMode.monthly
+          : map['pacing_mode'] == 'weekly'
+              ? PacingMode.weekly
+              : PacingMode.daily,
       leftoverPolicy: map['leftover_policy'] == 'outingsPiggyBank'
           ? LeftoverPolicy.outingsPiggyBank
           : LeftoverPolicy.dynamicDistribute,

@@ -93,6 +93,36 @@ class Txn {
 
   DateTime get occurredAt => DateTime.fromMillisecondsSinceEpoch(occurredAtMs);
 
+  /// Primary title for the transaction row (Line 1).
+  String displayTitle(String fallbackCategoryName) {
+    if (merchant.trim().isNotEmpty) {
+      return merchant.trim();
+    }
+    return fallbackCategoryName;
+  }
+
+  /// Recipient or alias for the transaction (Line 2).
+  /// Strips redundant prefixes if present so the recipient name is clean.
+  String? get displayRecipient {
+    if (note.trim().isEmpty) return null;
+    var clean = note.trim();
+    if (clean.startsWith('Slice · ')) {
+      clean = clean.substring('Slice · '.length).trim();
+    } else if (clean.startsWith('Slice UPI · ')) {
+      clean = clean.substring('Slice UPI · '.length).trim();
+    } else if (clean.startsWith('Slice UPI')) {
+      clean = clean.substring('Slice UPI'.length).trim();
+      if (clean.startsWith('·')) clean = clean.substring(1).trim();
+    } else if (clean.startsWith('From ')) {
+      clean = clean.substring('From '.length).trim();
+    } else if (clean.startsWith('To: ')) {
+      clean = clean.substring('To: '.length).trim();
+    } else if (clean.startsWith('To ')) {
+      clean = clean.substring('To '.length).trim();
+    }
+    return clean.isNotEmpty ? clean : null;
+  }
+
   Txn copyWith({
     String? id,
     int? amountPaise,
@@ -150,7 +180,7 @@ class Txn {
       );
 }
 
-enum PacingMode { daily, weekly }
+enum PacingMode { daily, weekly, monthly }
 
 enum SplitDirection { youAreOwed, youOwe }
 
@@ -240,18 +270,32 @@ enum LeftoverPolicy { dynamicDistribute, outingsPiggyBank }
 
 enum AppThemeMode {
   system,
+  dune,
+  duneNight,
+  sakura,
+  sakuraNight,
+  sakuraNoir,
+  linen,
+  seafoam,
+  paperwhite,
+  paperblack,
+  champagne,
+  graphite,
+  moss,
   light,
   dark,
+  velvet,
+  oatMilk,
+  rosePine,
+  eucalyptus,
   matcha,
   espresso,
   nordic,
-  sakura,
-  oled,
-  cyberpunk,
-  dune,
   pine,
   lavender,
   amber,
+  oled,
+  cyberpunk,
 }
 
 class FixedDeduction {

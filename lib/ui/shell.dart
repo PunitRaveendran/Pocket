@@ -54,12 +54,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
     final ledger = ref.read(ledgerProvider).valueOrNull;
     if (ledger == null) return;
     final s = ledger.settings;
-    final hasEmail = s.emailSyncEnabled &&
-        s.emailSyncAddress.trim().isNotEmpty &&
-        s.emailSyncAppPassword.trim().isNotEmpty;
-    final hasSms = s.smsSyncEnabled;
-
-    if (!hasEmail && !hasSms) {
+    if (!s.smsSyncEnabled) {
       return;
     }
 
@@ -69,7 +64,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
       return;
     }
     _lastSyncAttempt = now;
-    ref.read(ledgerProvider.notifier).syncAllBankTransactions();
+    ref.read(ledgerProvider.notifier).syncSms();
   }
 
   @override

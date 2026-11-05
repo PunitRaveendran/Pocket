@@ -681,10 +681,8 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
     final resolvedMerchant = _customMerchants[item.id] ??
         ledger?.resolveMerchantName(item.merchant) ??
         item.merchant;
-    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
-    final note = customWhatFor.isNotEmpty
-        ? customWhatFor
-        : (effectiveMerchant.isNotEmpty ? 'From $effectiveMerchant' : 'Stipend Top-Up via Slice');
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : 'Stipend Top-Up';
+    final note = resolvedMerchant;
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(
             item,
@@ -800,10 +798,9 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
     final resolvedMerchant = _customMerchants[item.id] ??
         ledger?.resolveMerchantName(item.merchant) ??
         item.merchant;
-    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : resolvedMerchant;
-    final note = customWhatFor.isNotEmpty
-        ? (resolvedMerchant != customWhatFor ? 'Slice · $resolvedMerchant' : 'Slice UPI')
-        : (item.direction == Direction.credit ? 'From $resolvedMerchant' : 'Slice · $resolvedMerchant');
+    final defaultSource = item.rawSource.toLowerCase().contains('sms') ? 'Bank SMS' : 'Slice UPI';
+    final effectiveMerchant = customWhatFor.isNotEmpty ? customWhatFor : defaultSource;
+    final note = resolvedMerchant;
 
     try {
       await ref.read(ledgerProvider.notifier).approveInboxTransaction(
@@ -816,7 +813,7 @@ class _PendingInboxSheetState extends ConsumerState<PendingInboxSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Recorded ₹${item.amountPaise ~/ 100} for $effectiveMerchant'),
+            content: Text('Recorded ₹${item.amountPaise ~/ 100} to $resolvedMerchant'),
             duration: const Duration(seconds: 2),
           ),
         );

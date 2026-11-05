@@ -55,6 +55,28 @@ class WeekBudget {
   }
 }
 
+class MonthBudget {
+  const MonthBudget({
+    required this.cycle,
+    required this.allowancePaise,
+    required this.spentPaise,
+    required this.refundsPaise,
+  });
+
+  final PayCycle cycle;
+  final int allowancePaise;
+  final int spentPaise;
+  final int refundsPaise;
+
+  int get netSpent => spentPaise - refundsPaise;
+  int get remaining => allowancePaise - netSpent;
+  bool get isOver => remaining < 0;
+  double get usedRatio {
+    if (allowancePaise <= 0) return netSpent > 0 ? 2 : 0;
+    return netSpent / allowancePaise;
+  }
+}
+
 class BudgetEngine {
   const BudgetEngine();
 

@@ -23,12 +23,80 @@ class PocketApp extends ConsumerWidget {
     final PaperTokens tokens;
     final ThemeMode themeMode;
     switch (appThemeMode) {
+      case AppThemeMode.system:
+        activeBrightness = systemBrightness;
+        tokens = activeBrightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;
+        themeMode = ThemeMode.system;
+      case AppThemeMode.dune:
+        tokens = PaperTokens.dune;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.duneNight:
+        tokens = PaperTokens.duneNight;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.sakura:
+        tokens = PaperTokens.sakura;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.sakuraNight:
+        tokens = PaperTokens.sakuraNight;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.sakuraNoir:
+        tokens = PaperTokens.sakuraNoir;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.linen:
+        tokens = PaperTokens.linen;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.seafoam:
+        tokens = PaperTokens.seafoam;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.paperwhite:
+        tokens = PaperTokens.paperwhite;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.paperblack:
+        tokens = PaperTokens.paperblack;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.champagne:
+        tokens = PaperTokens.champagne;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.graphite:
+        tokens = PaperTokens.graphite;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.moss:
+        tokens = PaperTokens.moss;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
       case AppThemeMode.light:
         tokens = PaperTokens.light;
         activeBrightness = Brightness.light;
         themeMode = ThemeMode.light;
       case AppThemeMode.dark:
         tokens = PaperTokens.dark;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.velvet:
+        tokens = PaperTokens.velvet;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.oatMilk:
+        tokens = PaperTokens.oatMilk;
+        activeBrightness = Brightness.light;
+        themeMode = ThemeMode.light;
+      case AppThemeMode.rosePine:
+        tokens = PaperTokens.rosePine;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
+      case AppThemeMode.eucalyptus:
+        tokens = PaperTokens.eucalyptus;
         activeBrightness = Brightness.dark;
         themeMode = ThemeMode.dark;
       case AppThemeMode.matcha:
@@ -43,22 +111,6 @@ class PocketApp extends ConsumerWidget {
         tokens = PaperTokens.nordic;
         activeBrightness = Brightness.dark;
         themeMode = ThemeMode.dark;
-      case AppThemeMode.sakura:
-        tokens = PaperTokens.sakura;
-        activeBrightness = Brightness.light;
-        themeMode = ThemeMode.light;
-      case AppThemeMode.oled:
-        tokens = PaperTokens.oled;
-        activeBrightness = Brightness.dark;
-        themeMode = ThemeMode.dark;
-      case AppThemeMode.cyberpunk:
-        tokens = PaperTokens.cyberpunk;
-        activeBrightness = Brightness.dark;
-        themeMode = ThemeMode.dark;
-      case AppThemeMode.dune:
-        tokens = PaperTokens.dune;
-        activeBrightness = Brightness.light;
-        themeMode = ThemeMode.light;
       case AppThemeMode.pine:
         tokens = PaperTokens.pine;
         activeBrightness = Brightness.dark;
@@ -71,10 +123,10 @@ class PocketApp extends ConsumerWidget {
         tokens = PaperTokens.amber;
         activeBrightness = Brightness.dark;
         themeMode = ThemeMode.dark;
-      case AppThemeMode.system:
-        activeBrightness = systemBrightness;
-        tokens = activeBrightness == Brightness.dark ? PaperTokens.dark : PaperTokens.light;
-        themeMode = ThemeMode.system;
+      case AppThemeMode.oled || AppThemeMode.cyberpunk:
+        tokens = PaperTokens.velvet;
+        activeBrightness = Brightness.dark;
+        themeMode = ThemeMode.dark;
     }
 
     return TokenScope(

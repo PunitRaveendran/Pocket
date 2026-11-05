@@ -613,6 +613,55 @@ void main() {
     // Verify Splits screen is active
     expect(find.text('Overall: You get back'), findsOneWidget);
   });
+
+  testWidgets('TodayScreen Weekly and Monthly modes organize spendings into days with headers and empty days', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(_wrap(const TodayScreen()));
+    await tester.pumpAndSettle();
+
+    // In Daily mode: verify transactions are visible directly
+    expect(find.text('Canteen Thali'), findsOneWidget);
+    expect(find.text('Chai & Samosa'), findsOneWidget);
+    // In Daily mode, there is no "Nothing spent" row
+    expect(find.text('— Nothing spent —'), findsNothing);
+
+    // Switch to Weekly mode ('W')
+    await tester.tap(find.text('W'));
+    await tester.pumpAndSettle();
+
+    // Verify Today day header appears (e.g. "Today, ...")
+    expect(find.textContaining('Today, '), findsOneWidget);
+    expect(find.text('Canteen Thali'), findsOneWidget);
+    // In Weekly mode, previous days of the week without spends show empty indicator
+    expect(find.text('— Nothing spent —'), findsWidgets);
+
+    // Switch to Monthly mode ('M')
+    await tester.tap(find.text('M'));
+    await tester.pumpAndSettle();
+
+    // Verify Today day header still appears in month view
+    expect(find.textContaining('Today, '), findsOneWidget);
+    expect(find.text('Canteen Thali'), findsOneWidget);
+    expect(find.text('— Nothing spent —'), findsWidgets);
+
+    // Verify swipe to delete still works in grouped mode
+    await tester.drag(find.text('Canteen Thali'), const Offset(-400, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Canteen Thali'), findsNothing);
+    expect(find.text('UNDO'), findsOneWidget);
+
+    // Tap UNDO and verify restored
+    await tester.tap(find.text('UNDO'));
+    await tester.pumpAndSettle();
+    expect(find.text('Canteen Thali'), findsOneWidget);
+  });
 }
 
 

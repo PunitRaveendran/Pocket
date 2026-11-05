@@ -220,4 +220,99 @@ void main() {
     expect(ledger.totalIOwePaise, 5000); // Sneha
     expect(ledger.netFriendBalancePaise, 7000); // Overall get back ₹70
   });
+
+  test('MonthBudget and buildCurrentMonth calculate monthly allowance and net spent', () {
+    final ledger = Ledger(
+      settings: Settings.defaults.copyWith(
+        stipendPaise: 300000,
+        cycleStartDay: 1,
+        pacingMode: PacingMode.monthly,
+      ),
+      categories: const [
+        Category(id: 'food', name: 'Food', icon: 'food', isSystem: true, sortOrder: 0),
+        Category(id: 'snacks', name: 'Snacks', icon: 'coffee', isSystem: true, sortOrder: 1),
+      ],
+      transactions: const [
+        Txn(
+          id: '1',
+          amountPaise: 45000,
+          direction: Direction.debit,
+          occurredAtMs: 1730419200000,
+          localDate: LocalDate(2026, 11, 2),
+          merchant: 'maggie',
+          categoryId: 'food',
+          bucket: Bucket.daily,
+          note: 'Ramesh Anna',
+        ),
+        Txn(
+          id: '2',
+          amountPaise: 15000,
+          direction: Direction.debit,
+          occurredAtMs: 1730505600000,
+          localDate: LocalDate(2026, 11, 3),
+          merchant: 'Slice UPI',
+          categoryId: 'snacks',
+          bucket: Bucket.daily,
+          note: 'Chai Point',
+        ),
+      ],
+      outings: const [],
+    );
+
+    final monthView = buildCurrentMonth(ledger, date: const LocalDate(2026, 11, 5));
+    expect(monthView.budget.allowancePaise, 300000);
+    expect(monthView.budget.spentPaise, 60000);
+    expect(monthView.budget.remaining, 240000);
+    expect(monthView.budget.isOver, isFalse);
+    expect(monthView.txns.length, 2);
+    expect(monthView.topCategoryName, 'Food');
+    expect(monthView.topCategoryPaise, 45000);
+  });
+
+  test('Txn displayTitle and displayRecipient format recipient hierarchy cleanly', () {
+    // Case 1: Approved without typing item name -> Title is Slice UPI, Recipient is Ramesh Anna
+    const txn1 = Txn(
+      id: '1',
+      amountPaise: 3000,
+      direction: Direction.debit,
+      occurredAtMs: 1730419200000,
+      localDate: LocalDate(2026, 11, 2),
+      merchant: 'Slice UPI',
+      categoryId: 'food',
+      bucket: Bucket.daily,
+      note: 'Ramesh Anna',
+    );
+    expect(txn1.displayTitle('Food'), 'Slice UPI');
+    expect(txn1.displayRecipient, 'Ramesh Anna');
+
+    // Case 2: Approved with custom item name -> Title is maggie, Recipient is Ramesh Anna
+    const txn2 = Txn(
+      id: '2',
+      amountPaise: 5000,
+      direction: Direction.debit,
+      occurredAtMs: 1730419200000,
+      localDate: LocalDate(2026, 11, 2),
+      merchant: 'maggie',
+      categoryId: 'food',
+      bucket: Bucket.daily,
+      note: 'Slice · Ramesh Anna',
+    );
+    expect(txn2.displayTitle('Food'), 'maggie');
+    expect(txn2.displayRecipient, 'Ramesh Anna');
+
+    // Case 3: Manual spend without recipient -> Recipient is null
+    const txn3 = Txn(
+      id: '3',
+      amountPaise: 2000,
+      direction: Direction.debit,
+      occurredAtMs: 1730419200000,
+      localDate: LocalDate(2026, 11, 2),
+      merchant: 'Chai',
+      categoryId: 'snacks',
+      bucket: Bucket.daily,
+      note: '',
+    );
+    expect(txn3.displayTitle('Snacks'), 'Chai');
+    expect(txn3.displayRecipient, isNull);
+  });
 }

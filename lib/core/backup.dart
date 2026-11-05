@@ -104,7 +104,11 @@ class BackupService {
         cycleStartDay: rawCycle.clamp(1, 31),
         hideAmounts: sMap['hide_amounts'] as bool? ?? false,
         onboarded: sMap['onboarded'] as bool? ?? true,
-        pacingMode: sMap['pacing_mode'] == 'weekly' ? PacingMode.weekly : PacingMode.daily,
+        pacingMode: sMap['pacing_mode'] == 'monthly'
+            ? PacingMode.monthly
+            : sMap['pacing_mode'] == 'weekly'
+                ? PacingMode.weekly
+                : PacingMode.daily,
         leftoverPolicy: sMap['leftover_policy'] == 'outingsPiggyBank'
             ? LeftoverPolicy.outingsPiggyBank
             : LeftoverPolicy.dynamicDistribute,

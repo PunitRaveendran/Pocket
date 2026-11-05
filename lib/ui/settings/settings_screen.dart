@@ -22,7 +22,6 @@ import '../sheets/receipt_sheet.dart';
 import '../widgets/amount_pad.dart';
 import '../widgets/app_password_guide_sheet.dart';
 import '../widgets/category_icon.dart';
-import '../widgets/chips.dart';
 import '../widgets/cycle_day_picker.dart';
 import '../widgets/hairline.dart';
 import '../widgets/primary_button.dart';
@@ -315,43 +314,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
                 title: Text('Theme', style: TypeScale.body(t.ink)),
-                subtitle: Text(
-                  switch (s.appThemeMode) {
-                    AppThemeMode.system => 'System default',
-                    AppThemeMode.light => 'Light mode (editorial warm paper)',
-                    AppThemeMode.dark => 'Dark mode (editorial charcoal)',
-                    AppThemeMode.matcha => 'Matcha Zen (calming tea paper)',
-                    AppThemeMode.espresso => 'Café Mocha (warm espresso & caramel)',
-                    AppThemeMode.nordic => 'Nordic Slate (deep navy & frost blue)',
-                    AppThemeMode.sakura => 'Sakura Blossom (soft blush & rose)',
-                    AppThemeMode.oled => 'Midnight OLED (pure black battery saver)',
-                    AppThemeMode.cyberpunk => 'Cyber Neon (obsidian & electric cyan)',
-                    AppThemeMode.dune => 'Sahara Sand (terracotta & warm linen)',
-                    AppThemeMode.pine => 'Alpine Pine (deep spruce & emerald)',
-                    AppThemeMode.lavender => 'Twilight Lilac (pale wisteria & royal iris)',
-                    AppThemeMode.amber => 'Retro Amber (graphite & warm phosphor)',
-                  },
-                  style: TypeScale.caption(t.inkSoft),
-                ),
+                subtitle: Text(_themeDisplayName(s.appThemeMode), style: TypeScale.caption(t.inkSoft)),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      switch (s.appThemeMode) {
-                        AppThemeMode.system => 'System',
-                        AppThemeMode.light => 'Paper',
-                        AppThemeMode.dark => 'Charcoal',
-                        AppThemeMode.matcha => 'Matcha',
-                        AppThemeMode.espresso => 'Espresso',
-                        AppThemeMode.nordic => 'Nordic',
-                        AppThemeMode.sakura => 'Sakura',
-                        AppThemeMode.oled => 'OLED',
-                        AppThemeMode.cyberpunk => 'Cyber Neon',
-                        AppThemeMode.dune => 'Sahara',
-                        AppThemeMode.pine => 'Pine',
-                        AppThemeMode.lavender => 'Lilac',
-                        AppThemeMode.amber => 'Amber',
-                      },
+                      _themeDisplayName(s.appThemeMode),
                       style: TypeScale.body(t.accent).copyWith(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(width: Space.x1),
@@ -557,19 +525,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                  leading: Icon(Icons.help_outline_rounded, size: 18, color: t.accent),
-                  title: Text('How to get an App Password?', style: TypeScale.body(t.accent)),
-                  subtitle: Text('Step-by-step 60-second setup guide', style: TypeScale.caption(t.inkSoft)),
-                  trailing: Icon(Icons.chevron_right_rounded, size: 20, color: t.accent),
-                  onTap: () => showAppPasswordGuideSheet(context, t),
-                ),
-                ListTile(
-                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
                   leading: Icon(Icons.account_balance_outlined, size: 18, color: t.accent),
                   title: Text('Active Banks to Monitor', style: TypeScale.body(t.ink)),
                   subtitle: Text(
                     s.emailSyncActiveBanks.length == 1 && s.emailSyncActiveBanks.contains('slice')
-                        ? 'Slice Bank Only (2 senders) · Ultra-fast sync ⚡'
+                        ? 'Slice Bank Only (2 senders)'
                         : '${s.emailSyncActiveBanks.length} banks active (${s.resolvedEmailSenders.length} senders)',
                     style: TypeScale.caption(s.emailSyncActiveBanks.length == 1 ? t.accent : t.inkSoft).copyWith(
                       fontWeight: s.emailSyncActiveBanks.length == 1 ? FontWeight.w600 : FontWeight.normal,
@@ -586,7 +546,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         child: Text(
                           s.emailSyncActiveBanks.length == 1 && s.emailSyncActiveBanks.contains('slice')
-                              ? 'Slice ⚡'
+                              ? 'Slice'
                               : '${s.emailSyncActiveBanks.length} Banks',
                           style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700),
                         ),
@@ -596,45 +556,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                   onTap: () => _showBankSelectorSheet(context, ref, s, t),
-                ),
-                ListTile(
-                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                  leading: Icon(Icons.bolt_rounded, size: 18, color: t.accent),
-                  title: Text('Sync Engine', style: TypeScale.body(t.ink)),
-                  subtitle: Text(
-                    s.emailSyncLastSyncedMs != null
-                        ? 'Incremental Delta Active (fetches last 48h) · Instant ⚡'
-                        : 'Initial Lookback Mode (searches past 45 days)',
-                    style: TypeScale.caption(t.inkSoft),
-                  ),
-                  trailing: s.emailSyncLastSyncedMs != null
-                      ? TextButton(
-                          onPressed: _isSyncingSlice ? null : () => _triggerManualSync(context, ref, force: true),
-                          child: Text('Force 45d', style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700)),
-                        )
-                      : null,
-                ),
-                ListTile(
-                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                  leading: Icon(Icons.tune_rounded, size: 18, color: t.inkSoft),
-                  title: Text('Custom Senders & Advanced', style: TypeScale.body(t.ink)),
-                  subtitle: Text(
-                    s.emailSyncSender.isEmpty ? 'Using active bank defaults' : s.emailSyncSender,
-                    style: TypeScale.caption(t.inkSoft),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Icon(Icons.edit_outlined, size: 18, color: t.inkSoft),
-                  onTap: () => _editEmailSender(context, ref, s, t),
-                ),
-                ListTile(
-                  contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
-                  leading: Icon(Icons.label_outline_rounded, size: 18, color: t.inkSoft),
-                  title: Text('Gmail Inbox Organization', style: TypeScale.body(t.ink)),
-                  subtitle: Text(
-                    'Processed emails are moved to the "Slice" label and removed from Inbox',
-                    style: TypeScale.caption(t.inkSoft),
-                  ),
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: Space.margin + 32, right: Space.margin),
@@ -875,12 +796,70 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  String _themeDisplayName(AppThemeMode mode) {
+    return switch (mode) {
+      AppThemeMode.system => 'System Default',
+      AppThemeMode.dune => 'Dune',
+      AppThemeMode.duneNight => 'Dune Night',
+      AppThemeMode.sakura => 'Sakura',
+      AppThemeMode.sakuraNight => 'Sakura Night',
+      AppThemeMode.sakuraNoir => 'Sakura Noir',
+      AppThemeMode.linen => 'Linen',
+      AppThemeMode.seafoam => 'Seafoam',
+      AppThemeMode.paperwhite => 'Paperwhite',
+      AppThemeMode.paperblack => 'Paperblack',
+      AppThemeMode.champagne => 'Champagne',
+      AppThemeMode.graphite => 'Graphite',
+      AppThemeMode.moss => 'Moss',
+      AppThemeMode.light => 'Light',
+      AppThemeMode.dark => 'Dark',
+      AppThemeMode.velvet => 'Velvet',
+      AppThemeMode.oatMilk => 'Oat Milk',
+      AppThemeMode.rosePine => 'Rose Pine',
+      AppThemeMode.eucalyptus => 'Eucalyptus',
+      AppThemeMode.matcha => 'Matcha',
+      AppThemeMode.espresso => 'Espresso',
+      AppThemeMode.nordic => 'Nordic',
+      AppThemeMode.pine => 'Pine',
+      AppThemeMode.lavender => 'Lavender',
+      AppThemeMode.amber => 'Amber',
+      _ => 'Velvet',
+    };
+  }
+
   void _showThemePickerSheet(
     BuildContext context,
     WidgetRef ref,
     AppThemeMode currentMode,
     PaperTokens t,
   ) {
+    const modeMap = <String, AppThemeMode>{
+      'Dune': AppThemeMode.dune,
+      'Dune Night': AppThemeMode.duneNight,
+      'Sakura': AppThemeMode.sakura,
+      'Sakura Night': AppThemeMode.sakuraNight,
+      'Sakura Noir': AppThemeMode.sakuraNoir,
+      'Linen': AppThemeMode.linen,
+      'Seafoam': AppThemeMode.seafoam,
+      'Paperwhite': AppThemeMode.paperwhite,
+      'Paperblack': AppThemeMode.paperblack,
+      'Champagne': AppThemeMode.champagne,
+      'Graphite': AppThemeMode.graphite,
+      'Moss': AppThemeMode.moss,
+      'Light': AppThemeMode.light,
+      'Dark': AppThemeMode.dark,
+      'Velvet': AppThemeMode.velvet,
+      'Oat Milk': AppThemeMode.oatMilk,
+      'Rose Pine': AppThemeMode.rosePine,
+      'Eucalyptus': AppThemeMode.eucalyptus,
+      'Matcha': AppThemeMode.matcha,
+      'Espresso': AppThemeMode.espresso,
+      'Nordic': AppThemeMode.nordic,
+      'Pine': AppThemeMode.pine,
+      'Lavender': AppThemeMode.lavender,
+      'Amber': AppThemeMode.amber,
+    };
+
     final themes = [
       (
         AppThemeMode.system,
@@ -888,78 +867,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         'Matches Android system dark/light mode',
         [Colors.grey.shade300, Colors.grey.shade700, Colors.blueGrey, Colors.teal],
       ),
-      (
-        AppThemeMode.light,
-        'Paper (Light)',
-        'Warm editorial newsprint & forest green',
-        [PaperTokens.light.paper, PaperTokens.light.card, PaperTokens.light.rule, PaperTokens.light.accent],
-      ),
-      (
-        AppThemeMode.dark,
-        'Charcoal (Dark)',
-        'Editorial charcoal & soft sage mint',
-        [PaperTokens.dark.paper, PaperTokens.dark.card, PaperTokens.dark.rule, PaperTokens.dark.accent],
-      ),
-      (
-        AppThemeMode.oled,
-        'Midnight OLED',
-        'Pure AMOLED black with vibrant neon mint',
-        [PaperTokens.oled.paper, PaperTokens.oled.card, PaperTokens.oled.rule, PaperTokens.oled.accent],
-      ),
-      (
-        AppThemeMode.cyberpunk,
-        'Cyber Neon',
-        'Obsidian night with electric cyan & magenta',
-        [PaperTokens.cyberpunk.paper, PaperTokens.cyberpunk.card, PaperTokens.cyberpunk.rule, PaperTokens.cyberpunk.accent],
-      ),
-      (
-        AppThemeMode.dune,
-        'Sahara Sand',
-        'Sunbaked linen paper & Moroccan terracotta',
-        [PaperTokens.dune.paper, PaperTokens.dune.card, PaperTokens.dune.rule, PaperTokens.dune.accent],
-      ),
-      (
-        AppThemeMode.pine,
-        'Alpine Pine',
-        'Mystical deep spruce & emerald glow',
-        [PaperTokens.pine.paper, PaperTokens.pine.card, PaperTokens.pine.rule, PaperTokens.pine.accent],
-      ),
-      (
-        AppThemeMode.lavender,
-        'Twilight Lilac',
-        'French wisteria silk & royal iris purple',
-        [PaperTokens.lavender.paper, PaperTokens.lavender.card, PaperTokens.lavender.rule, PaperTokens.lavender.accent],
-      ),
-      (
-        AppThemeMode.amber,
-        'Retro Amber',
-        'Basalt CRT slate & golden phosphor amber',
-        [PaperTokens.amber.paper, PaperTokens.amber.card, PaperTokens.amber.rule, PaperTokens.amber.accent],
-      ),
-      (
-        AppThemeMode.matcha,
-        'Matcha Zen',
-        'Calming tea paper with bamboo green',
-        [PaperTokens.matcha.paper, PaperTokens.matcha.card, PaperTokens.matcha.rule, PaperTokens.matcha.accent],
-      ),
-      (
-        AppThemeMode.espresso,
-        'Café Espresso',
-        'Warm roasted mocha & caramel cream',
-        [PaperTokens.espresso.paper, PaperTokens.espresso.card, PaperTokens.espresso.rule, PaperTokens.espresso.accent],
-      ),
-      (
-        AppThemeMode.nordic,
-        'Nordic Slate',
-        'Deep Atlantic navy & arctic frost blue',
-        [PaperTokens.nordic.paper, PaperTokens.nordic.card, PaperTokens.nordic.rule, PaperTokens.nordic.accent],
-      ),
-      (
-        AppThemeMode.sakura,
-        'Sakura Rose',
-        'Soft Japanese blush & rose blossom',
-        [PaperTokens.sakura.paper, PaperTokens.sakura.card, PaperTokens.sakura.rule, PaperTokens.sakura.accent],
-      ),
+      for (final entry in PaperTokens.all.entries)
+        if (modeMap.containsKey(entry.key))
+          (
+            modeMap[entry.key]!,
+            entry.key,
+            entry.value.isDark ? 'Dark theme' : 'Light theme',
+            [entry.value.paper, entry.value.card, entry.value.rule, entry.value.accent],
+          ),
     ];
 
     showModalBottomSheet<void>(
@@ -1714,96 +1629,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _editEmailSender(
-    BuildContext context,
-    WidgetRef ref,
-    Settings settings,
-    PaperTokens t,
-  ) async {
-    final controller = TextEditingController(
-      text: settings.emailSyncSender.isEmpty ? BankPresets.defaultSendersString : settings.emailSyncSender,
-    );
-    final banks = BankPresets.all;
 
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text('Monitored Banks & Senders', style: TypeScale.heading(t.ink)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Select banks to auto-include their sender addresses, or customize below:',
-                  style: TypeScale.caption(t.inkSoft),
-                ),
-                const SizedBox(height: Space.x3),
-                Wrap(
-                  spacing: Space.x2,
-                  runSpacing: Space.x2,
-                  children: [
-                    for (final b in banks) ...[
-                      LedgerChip(
-                        label: b.displayName,
-                        selected: controller.text.contains(b.senders.first),
-                        onTap: () {
-                          setDialogState(() {
-                            final current = controller.text
-                                .split(RegExp(r'[,;]'))
-                                .map((s) => s.trim())
-                                .where((s) => s.isNotEmpty)
-                                .toSet();
-                            if (current.contains(b.senders.first)) {
-                              for (final s in b.senders) {
-                                current.remove(s);
-                              }
-                            } else {
-                              current.addAll(b.senders);
-                            }
-                            controller.text = current.join(', ');
-                          });
-                        },
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: Space.x3),
-                Text('Sender addresses (comma-separated):', style: TypeScale.caption(t.inkSoft)),
-                const SizedBox(height: Space.x1),
-                TextField(
-                  controller: controller,
-                  maxLines: 3,
-                  style: TypeScale.body(t.ink),
-                  decoration: InputDecoration(
-                    hintText: BankPresets.defaultSendersString,
-                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: t.rule)),
-                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: t.accent)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(Copy.cancel, style: TypeScale.body(t.inkSoft)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(Copy.save, style: TypeScale.body(t.accent)),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok == true) {
-      await ref.read(ledgerProvider.notifier).updateSettings(
-            settings.copyWith(emailSyncSender: controller.text.trim()),
-          );
-    }
-  }
 
   Future<void> _triggerManualSmsSync(BuildContext context, WidgetRef ref) async {
     setState(() => _isSyncingSms = true);

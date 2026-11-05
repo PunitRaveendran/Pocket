@@ -60,7 +60,9 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
           merchantAliases: merchantAliases,
           savedFriends: savedFriends,
         );
-        final isWeekly = (_pacingOverride ?? ledger.settings.pacingMode) == PacingMode.weekly;
+        final pacingMode = _pacingOverride ?? ledger.settings.pacingMode;
+        final isWeekly = pacingMode == PacingMode.weekly;
+        final isMonthly = pacingMode == PacingMode.monthly;
         final hide = ledger.settings.hideAmounts;
 
         final int remaining;
@@ -89,6 +91,27 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
               : remaining == 0
                   ? 'this week is even'
                   : 'left this week';
+          caption = remaining < 0
+              ? Copy.overBy(Money.formatPaise(remaining.abs(), hide: hide))
+              : Copy.leftOf(
+                  Money.formatPaise(remaining, hide: hide),
+                  Money.formatPaise(allowancePaise, hide: hide),
+                );
+        } else if (isMonthly) {
+          final monthView = buildCurrentMonth(ledger, date: _selectedDate);
+          weekBudget = null;
+          dayTxns = monthView.txns;
+          remaining = monthView.budget.remaining;
+          allowancePaise = monthView.budget.allowancePaise;
+          usedRatio = monthView.budget.usedRatio;
+          topCategoryName = monthView.topCategoryName;
+          topCategoryPaise = monthView.topCategoryPaise;
+          cycle = monthView.cycle;
+          label = remaining < 0
+              ? 'over this month'
+              : remaining == 0
+                  ? 'this month is even'
+                  : 'left this month';
           caption = remaining < 0
               ? Copy.overBy(Money.formatPaise(remaining.abs(), hide: hide))
               : Copy.leftOf(
@@ -139,6 +162,72 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
           }
         }
 
+        // Group transactions by day for Weekly (W) & Monthly (M) modes
+        final groupedDayItems = <_DayListItem>[];
+        if (isWeekly || isMonthly) {
+          final today = LocalDate.today();
+          final startDate = isWeekly ? weekBudget!.startDate : cycle.start;
+          final rangeEnd = isWeekly ? weekBudget!.endDate : cycle.endInclusive;
+
+          LocalDate effectiveEnd;
+          if (rangeEnd.isAfter(today) && !startDate.isAfter(today)) {
+            // Current period: show up to today
+            effectiveEnd = today;
+          } else {
+            effectiveEnd = rangeEnd;
+          }
+
+          LocalDate effectiveStart = startDate;
+          for (final txn in filtered) {
+            final d = LocalDate.fromDateTime(txn.occurredAt);
+            if (d.isAfter(effectiveEnd)) {
+              effectiveEnd = d;
+            }
+            if (d.isBefore(effectiveStart)) {
+              effectiveStart = d;
+            }
+          }
+
+          final txnsByDay = <LocalDate, List<Txn>>{};
+          for (final txn in filtered) {
+            final d = LocalDate.fromDateTime(txn.occurredAt);
+            txnsByDay.putIfAbsent(d, () => []).add(txn);
+          }
+          for (final txns in txnsByDay.values) {
+            txns.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+          }
+
+          final days = <LocalDate>[];
+          var curr = effectiveEnd;
+          while (!curr.isBefore(effectiveStart)) {
+            days.add(curr);
+            curr = curr.addDays(-1);
+          }
+
+          for (final day in days) {
+            final txns = txnsByDay[day] ?? const [];
+            if (_filter != null && txns.isEmpty) {
+              continue;
+            }
+            var dayTotalPaise = 0;
+            for (final t in txns) {
+              if (t.direction == Direction.debit) {
+                dayTotalPaise += t.amountPaise;
+              } else {
+                dayTotalPaise -= t.amountPaise;
+              }
+            }
+            groupedDayItems.add(_DayHeaderItem(day, dayTotalPaise));
+            if (txns.isEmpty) {
+              groupedDayItems.add(_DayEmptyItem(day));
+            } else {
+              for (var i = 0; i < txns.length; i++) {
+                groupedDayItems.add(_DayTxnItem(txns[i], isLastInDay: i == txns.length - 1));
+              }
+            }
+          }
+        }
+
         final daysRemainingInCycle = cycle.endInclusive.dateTime.difference(_selectedDate.dateTime).inDays + 1;
         final pacePaise = safeDailyPace(ledger, cycle, _selectedDate);
         final isCrunchMode = daysRemainingInCycle >= 3 && daysRemainingInCycle <= 14 && pacePaise > 0 && pacePaise < 4000;
@@ -161,17 +250,21 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Mode Switcher (D / W) and Date Navigation Bar
+                    // Mode Switcher (D / W / M) and Date Navigation Bar
                     Row(
                       children: [
                         IconButton(
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           icon: Icon(Icons.chevron_left, color: t.inkSoft, size: 24),
-                          tooltip: isWeekly ? 'Previous week' : 'Previous day',
+                          tooltip: isMonthly
+                              ? 'Previous month'
+                              : (isWeekly ? 'Previous week' : 'Previous day'),
                           onPressed: () {
                             HapticFeedback.selectionClick();
-                            if (isWeekly && weekBudget != null) {
+                            if (isMonthly) {
+                              setState(() => _selectedDate = cycle.start.addDays(-1));
+                            } else if (isWeekly && weekBudget != null) {
                               setState(() => _selectedDate = weekBudget!.startDate.addDays(-1));
                             } else {
                               setState(() => _selectedDate = _selectedDate.addDays(-1));
@@ -181,13 +274,17 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                         const SizedBox(width: Space.x1),
                         Expanded(
                           child: Text(
-                            isWeekly && weekBudget != null
-                                ? (weekBudget.contains(LocalDate.today())
-                                    ? 'This Week (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})'
-                                    : 'Week ${weekBudget.weekNumber} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})')
-                                : (_isToday
-                                    ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
-                                    : DateFormat('EEE, d MMM').format(_selectedDate.dateTime)),
+                            isMonthly
+                                ? (cycle.contains(LocalDate.today())
+                                    ? 'This Month (${DateFormat('d MMM').format(cycle.start.dateTime)} – ${DateFormat('d MMM').format(cycle.endInclusive.dateTime)})'
+                                    : '${DateFormat('MMM yyyy').format(cycle.start.dateTime)} (${DateFormat('d MMM').format(cycle.start.dateTime)} – ${DateFormat('d MMM').format(cycle.endInclusive.dateTime)})')
+                                : (isWeekly && weekBudget != null
+                                    ? (weekBudget.contains(LocalDate.today())
+                                        ? 'This Week (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})'
+                                        : 'Week ${weekBudget.weekNumber} (${DateFormat('d MMM').format(weekBudget.startDate.dateTime)} – ${DateFormat('d MMM').format(weekBudget.endDate.dateTime)})')
+                                    : (_isToday
+                                        ? 'Today, ${DateFormat('d MMM').format(_selectedDate.dateTime)}'
+                                        : DateFormat('EEE, d MMM').format(_selectedDate.dateTime))),
                             style: TypeScale.caption(t.inkSoft).copyWith(fontWeight: FontWeight.w600),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -198,15 +295,25 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                           constraints: const BoxConstraints(),
                           icon: Icon(
                             Icons.chevron_right,
-                            color: (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday) ? t.rule : t.inkSoft,
+                            color: (isMonthly
+                                    ? cycle.contains(LocalDate.today())
+                                    : (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday))
+                                ? t.rule
+                                : t.inkSoft,
                             size: 24,
                           ),
-                          tooltip: isWeekly ? 'Next week' : 'Next day',
-                          onPressed: (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday)
+                          tooltip: isMonthly
+                              ? 'Next month'
+                              : (isWeekly ? 'Next week' : 'Next day'),
+                          onPressed: (isMonthly
+                                  ? cycle.contains(LocalDate.today())
+                                  : (isWeekly ? weekBudget?.contains(LocalDate.today()) == true : _isToday))
                               ? null
                               : () {
                                   HapticFeedback.selectionClick();
-                                  if (isWeekly && weekBudget != null) {
+                                  if (isMonthly) {
+                                    setState(() => _selectedDate = cycle.endInclusive.addDays(1));
+                                  } else if (isWeekly && weekBudget != null) {
                                     setState(() => _selectedDate = weekBudget!.endDate.addDays(1));
                                   } else {
                                     setState(() => _selectedDate = _selectedDate.addDays(1));
@@ -214,7 +321,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                                 },
                         ),
                         const SizedBox(width: Space.x2),
-                        // D / W compact toggle
+                        // D / W / M compact toggle
                         Container(
                           padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
@@ -237,16 +344,16 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                                   },
                                   borderRadius: BorderRadius.circular(Space.controlRadius - 2),
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: !isWeekly ? t.accentTint : Colors.transparent,
+                                      color: pacingMode == PacingMode.daily ? t.accentTint : Colors.transparent,
                                       borderRadius: BorderRadius.circular(Space.controlRadius - 2),
                                     ),
                                     child: Text(
                                       'D',
-                                      style: TypeScale.caption(!isWeekly ? t.accent : t.inkSoft)
+                                      style: TypeScale.caption(pacingMode == PacingMode.daily ? t.accent : t.inkSoft)
                                           .copyWith(
-                                        fontWeight: !isWeekly ? FontWeight.w800 : FontWeight.w500,
+                                        fontWeight: pacingMode == PacingMode.daily ? FontWeight.w800 : FontWeight.w500,
                                         fontSize: 11,
                                       ),
                                     ),
@@ -265,16 +372,44 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                                   },
                                   borderRadius: BorderRadius.circular(Space.controlRadius - 2),
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: isWeekly ? t.accentTint : Colors.transparent,
+                                      color: pacingMode == PacingMode.weekly ? t.accentTint : Colors.transparent,
                                       borderRadius: BorderRadius.circular(Space.controlRadius - 2),
                                     ),
                                     child: Text(
                                       'W',
-                                      style: TypeScale.caption(isWeekly ? t.accent : t.inkSoft)
+                                      style: TypeScale.caption(pacingMode == PacingMode.weekly ? t.accent : t.inkSoft)
                                           .copyWith(
-                                        fontWeight: isWeekly ? FontWeight.w800 : FontWeight.w500,
+                                        fontWeight: pacingMode == PacingMode.weekly ? FontWeight.w800 : FontWeight.w500,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Tooltip(
+                                message: 'Monthly',
+                                child: InkWell(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _pacingOverride = PacingMode.monthly);
+                                    ref
+                                        .read(ledgerProvider.notifier)
+                                        .setPacingMode(PacingMode.monthly);
+                                  },
+                                  borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: pacingMode == PacingMode.monthly ? t.accentTint : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(Space.controlRadius - 2),
+                                    ),
+                                    child: Text(
+                                      'M',
+                                      style: TypeScale.caption(pacingMode == PacingMode.monthly ? t.accent : t.inkSoft)
+                                          .copyWith(
+                                        fontWeight: pacingMode == PacingMode.monthly ? FontWeight.w800 : FontWeight.w500,
                                         fontSize: 11,
                                       ),
                                     ),
@@ -526,147 +661,82 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
                 ),
               ),
             ),
-            if (filtered.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: Space.margin),
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Text(
-                      _filter == null
-                          ? Copy.nothingYet
-                          : 'No expenses under ${_getCategoryName(ledger, _filter!)} today.',
-                      style: TypeScale.body(t.inkSoft),
+            if (isWeekly || isMonthly) ...[
+              if (groupedDayItems.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: Text(
+                        _filter == null
+                            ? Copy.nothingYet
+                            : 'No expenses under ${_getCategoryName(ledger, _filter!)} ${isMonthly ? "this month" : "this week"}.',
+                        style: TypeScale.body(t.inkSoft),
+                      ),
                     ),
                   ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      final item = groupedDayItems[i];
+                      if (item is _DayHeaderItem) {
+                        return _buildDayHeader(t, item.date, item.totalPaise, hide);
+                      } else if (item is _DayEmptyItem) {
+                        return _buildDayEmpty(t);
+                      } else if (item is _DayTxnItem) {
+                        return _buildDismissibleTxnRow(
+                          context: context,
+                          t: t,
+                          ledger: ledger,
+                          txn: item.txn,
+                          hide: hide,
+                          showDivider: !item.isLastInDay,
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                    childCount: groupedDayItems.length,
+                  ),
                 ),
-              )
-            else
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, i) {
-                    final txn = filtered[i];
-                    final cat = ledger.categoryById(txn.categoryId);
-                    final catName = cat?.name ?? Copy.misc;
-                    return Dismissible(
-                      key: Key('txn-dismissible-${txn.id}'),
-                      direction: DismissDirection.horizontal,
-                      dismissThresholds: const {
-                        DismissDirection.startToEnd: 0.25,
-                        DismissDirection.endToStart: 0.35,
-                      },
-                      background: Container(
-                        color: t.accentTint,
-                        alignment: Alignment.centerLeft,
-                        padding: const EdgeInsets.symmetric(horizontal: Space.margin),
-                        child: Row(
-                          children: [
-                            Icon(Icons.swap_horiz_rounded, color: t.accent, size: 20),
-                            const SizedBox(width: Space.x2),
-                            Text(
-                              'Re-categorize',
-                              style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ],
-                        ),
+            ] else ...[
+              if (filtered.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: Text(
+                        _filter == null
+                            ? Copy.nothingYet
+                            : 'No expenses under ${_getCategoryName(ledger, _filter!)} today.',
+                        style: TypeScale.body(t.inkSoft),
                       ),
-                      secondaryBackground: Container(
-                        color: t.overTint,
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.symmetric(horizontal: Space.margin),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Text(
-                              'Delete',
-                              style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(width: Space.x2),
-                            Icon(Icons.delete_outline_rounded, color: t.over, size: 20),
-                          ],
-                        ),
-                      ),
-                      confirmDismiss: (direction) async {
-                        if (direction == DismissDirection.startToEnd) {
-                          HapticFeedback.lightImpact();
-                          _showQuickCategoryPicker(t, txn, catName);
-                          return false;
-                        } else if (direction == DismissDirection.endToStart) {
-                          return true;
-                        }
-                        return false;
-                      },
-                      onDismissed: (direction) {
-                        if (direction == DismissDirection.endToStart) {
-                          HapticFeedback.mediumImpact();
-                          ref.read(ledgerProvider.notifier).deleteTxn(txn.id);
-
-                          ScaffoldMessenger.of(context).clearSnackBars();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              behavior: SnackBarBehavior.floating,
-                              margin: const EdgeInsets.all(Space.margin),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(Space.controlRadius),
-                                side: BorderSide(color: t.rule),
-                              ),
-                              backgroundColor: t.card,
-                              elevation: 4,
-                              content: Row(
-                                children: [
-                                  Icon(Icons.delete_outline_rounded, size: 18, color: t.inkSoft),
-                                  const SizedBox(width: Space.x2),
-                                  Expanded(
-                                    child: Text(
-                                      'Deleted ${txn.merchant.isNotEmpty ? txn.merchant : catName} (₹${txn.amountPaise ~/ 100})',
-                                      style: TypeScale.body(t.ink).copyWith(fontSize: 13),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              action: SnackBarAction(
-                                label: 'UNDO',
-                                textColor: t.accent,
-                                onPressed: () {
-                                  HapticFeedback.lightImpact();
-                                  ref.read(ledgerProvider.notifier).restoreTxn(txn);
-                                },
-                              ),
-                              duration: const Duration(seconds: 4),
-                            ),
-                          );
-                        }
-                      },
-                      child: Material(
-                        color: t.paper,
-                        child: Column(
-                          children: [
-                            TransactionRow(
-                              txn: txn,
-                              categoryName: catName,
-                              categoryIconKey: cat?.icon ?? 'misc',
-                              hideAmounts: hide,
-                              onTap: () => showSpendSheet(
-                                context,
-                                editing: txn,
-                                initialDate: _selectedDate,
-                              ),
-                            ),
-                            if (i < filtered.length - 1)
-                              const Hairline(indent: Space.margin)
-                            else
-                              const SizedBox(height: 1),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                  childCount: filtered.length,
+                    ),
+                  ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      final txn = filtered[i];
+                      return _buildDismissibleTxnRow(
+                        context: context,
+                        t: t,
+                        ledger: ledger,
+                        txn: txn,
+                        hide: hide,
+                        showDivider: i < filtered.length - 1,
+                      );
+                    },
+                    childCount: filtered.length,
+                  ),
                 ),
-              ),
+            ],
             const SliverToBoxAdapter(child: SizedBox(height: Space.x12)),
           ],
         ),
@@ -897,5 +967,214 @@ class _TodayScreenState extends ConsumerState<TodayScreen> with AutomaticKeepAli
           );
     }
   }
+
+  Widget _buildDismissibleTxnRow({
+    required BuildContext context,
+    required PaperTokens t,
+    required Ledger ledger,
+    required Txn txn,
+    required bool hide,
+    required bool showDivider,
+  }) {
+    final cat = ledger.categoryById(txn.categoryId);
+    final catName = cat?.name ?? Copy.misc;
+    return Dismissible(
+      key: Key('txn-dismissible-${txn.id}'),
+      direction: DismissDirection.horizontal,
+      dismissThresholds: const {
+        DismissDirection.startToEnd: 0.25,
+        DismissDirection.endToStart: 0.35,
+      },
+      background: Container(
+        color: t.accentTint,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+        child: Row(
+          children: [
+            Icon(Icons.swap_horiz_rounded, color: t.accent, size: 20),
+            const SizedBox(width: Space.x2),
+            Text(
+              'Re-categorize',
+              style: TypeScale.caption(t.accent).copyWith(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+      secondaryBackground: Container(
+        color: t.overTint,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: Space.margin),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text(
+              'Delete',
+              style: TypeScale.caption(t.over).copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: Space.x2),
+            Icon(Icons.delete_outline_rounded, color: t.over, size: 20),
+          ],
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          HapticFeedback.lightImpact();
+          _showQuickCategoryPicker(t, txn, catName);
+          return false;
+        } else if (direction == DismissDirection.endToStart) {
+          return true;
+        }
+        return false;
+      },
+      onDismissed: (direction) {
+        if (direction == DismissDirection.endToStart) {
+          HapticFeedback.mediumImpact();
+          ref.read(ledgerProvider.notifier).deleteTxn(txn.id);
+
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(Space.margin),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(Space.controlRadius),
+                side: BorderSide(color: t.rule),
+              ),
+              backgroundColor: t.card,
+              elevation: 4,
+              content: Row(
+                children: [
+                  Icon(Icons.delete_outline_rounded, size: 18, color: t.inkSoft),
+                  const SizedBox(width: Space.x2),
+                  Expanded(
+                    child: Text(
+                      'Deleted ${txn.merchant.isNotEmpty ? txn.merchant : catName} (₹${txn.amountPaise ~/ 100})',
+                      style: TypeScale.body(t.ink).copyWith(fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              action: SnackBarAction(
+                label: 'UNDO',
+                textColor: t.accent,
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  ref.read(ledgerProvider.notifier).restoreTxn(txn);
+                },
+              ),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      },
+      child: Material(
+        color: t.paper,
+        child: Column(
+          children: [
+            TransactionRow(
+              txn: txn,
+              categoryName: catName,
+              categoryIconKey: cat?.icon ?? 'misc',
+              hideAmounts: hide,
+              onTap: () => showSpendSheet(
+                context,
+                editing: txn,
+                initialDate: _selectedDate,
+              ),
+            ),
+            if (showDivider)
+              const Hairline(indent: Space.margin)
+            else
+              const SizedBox(height: 1),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDayHeader(LocalDate day) {
+    final today = LocalDate.today();
+    final formatStr = day.year == today.year ? 'd MMMM' : 'd MMMM yyyy';
+    final dayName = DateFormat(formatStr).format(day.dateTime);
+    if (day == today) {
+      return 'Today, $dayName';
+    } else if (day == today.addDays(-1)) {
+      return 'Yesterday, $dayName';
+    } else {
+      return '${DateFormat('EEE').format(day.dateTime)}, $dayName';
+    }
+  }
+
+  Widget _buildDayHeader(PaperTokens t, LocalDate date, int totalPaise, bool hide) {
+    final label = _formatDayHeader(date);
+    final amountText = totalPaise == 0
+        ? '₹0'
+        : totalPaise > 0
+            ? Money.formatPaise(totalPaise, hide: hide)
+            : '+${Money.formatPaise(totalPaise.abs(), hide: hide)}';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(Space.margin, Space.x3, Space.margin, Space.x1),
+      color: t.paper,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(
+            label,
+            style: TypeScale.caption(t.ink).copyWith(
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              letterSpacing: 0.1,
+            ),
+          ),
+          Text(
+            amountText,
+            style: TypeScale.money(
+              totalPaise > 0 ? t.ink : t.inkSoft.withValues(alpha: 0.7),
+              size: 13,
+            ).copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDayEmpty(PaperTokens t) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(Space.margin, Space.x1, Space.margin, Space.x2),
+      color: t.paper,
+      child: Text(
+        '— Nothing spent —',
+        style: TypeScale.caption(t.inkSoft.withValues(alpha: 0.55)).copyWith(
+          fontSize: 12,
+          fontStyle: FontStyle.italic,
+        ),
+      ),
+    );
+  }
+}
+
+sealed class _DayListItem {}
+
+class _DayHeaderItem extends _DayListItem {
+  final LocalDate date;
+  final int totalPaise;
+  _DayHeaderItem(this.date, this.totalPaise);
+}
+
+class _DayTxnItem extends _DayListItem {
+  final Txn txn;
+  final bool isLastInDay;
+  _DayTxnItem(this.txn, {required this.isLastInDay});
+}
+
+class _DayEmptyItem extends _DayListItem {
+  final LocalDate date;
+  _DayEmptyItem(this.date);
 }
 

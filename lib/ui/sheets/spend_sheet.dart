@@ -94,7 +94,7 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
     }
 
     _merchant = TextEditingController(text: e?.merchant ?? '');
-    _note = TextEditingController(text: e?.note ?? '');
+    _note = TextEditingController(text: e?.displayRecipient ?? e?.note ?? '');
     _friendNameController = TextEditingController();
     _friendShareController = TextEditingController();
   }
@@ -476,12 +476,47 @@ class _SpendSheetState extends ConsumerState<SpendSheet> {
                   style: TypeScale.body(t.ink),
                   cursorColor: t.accent,
                   decoration: InputDecoration(
-                    hintText: 'What was this for? (e.g. Canteen, Xerox, Chai)',
+                    hintText: 'What was this for? (e.g. Maggie, Xerox, Chai)',
                     hintStyle: TypeScale.body(t.inkSoft),
                     enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
                     focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.accent)),
                   ),
                 ),
+                const SizedBox(height: Space.x2),
+                TextField(
+                  controller: _note,
+                  style: TypeScale.body(t.ink),
+                  cursorColor: t.accent,
+                  decoration: InputDecoration(
+                    hintText: 'Paid to / Recipient (e.g. Ramesh Canteen, Akhil)',
+                    hintStyle: TypeScale.body(t.inkSoft),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.rule)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: t.accent)),
+                  ),
+                ),
+                if ((ledger?.allFriendSuggestions ?? []).isNotEmpty) ...[
+                  const SizedBox(height: Space.x1),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final rec in (ledger?.allFriendSuggestions ?? []).take(5))
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ActionChip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text(rec, style: TypeScale.caption(t.ink)),
+                              avatar: Icon(Icons.person_outline, size: 12, color: t.accent),
+                              backgroundColor: t.card,
+                              onPressed: () {
+                                setState(() => _note.text = rec);
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (widget.editing == null) ...[
                   const SizedBox(height: Space.x3),
                   // Inline Friend Split section

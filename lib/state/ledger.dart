@@ -42,11 +42,6 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
       if (ledger.settings.smsSyncEnabled) {
         syncSms();
       }
-      if (ledger.settings.emailSyncEnabled &&
-          ledger.settings.emailSyncAddress.isNotEmpty &&
-          ledger.settings.emailSyncAppPassword.isNotEmpty) {
-        syncSliceEmails();
-      }
     });
     return ledger;
   }
@@ -115,9 +110,6 @@ class LedgerNotifier extends AsyncNotifier<Ledger> {
     await _reload();
     if (smsSyncEnabled) {
       Future.delayed(const Duration(milliseconds: 500), () => syncSms());
-    }
-    if (emailSyncEnabled && emailSyncAddress.isNotEmpty && emailSyncAppPassword.isNotEmpty) {
-      Future.delayed(const Duration(milliseconds: 800), () => syncSliceEmails());
     }
   }
 
@@ -724,6 +716,70 @@ WeekView buildCurrentWeek(Ledger ledger, {LocalDate? date}) {
   return WeekView(
     budget: budget,
     txns: weekTxns,
+    topCategoryName: topName,
+    topCategoryPaise: topPaise,
+    cycle: cycle,
+  );
+}
+
+class MonthView {
+  const MonthView({
+    required this.budget,
+    required this.txns,
+    required this.topCategoryName,
+    required this.topCategoryPaise,
+    required this.cycle,
+  });
+
+  final MonthBudget budget;
+  final List<Txn> txns;
+  final String? topCategoryName;
+  final int topCategoryPaise;
+  final PayCycle cycle;
+}
+
+MonthView buildCurrentMonth(Ledger ledger, {LocalDate? date}) {
+  final day = date ?? LocalDate.today();
+  final cycle = PayCycle.containing(day, ledger.settings.cycleStartDay);
+
+  final monthTxns = ledger.transactions.where((t) {
+    if (t.bucket != Bucket.daily) return false;
+    return cycle.contains(t.localDate);
+  }).toList();
+
+  var spent = 0;
+  var refunds = 0;
+  final byCat = <String, int>{};
+  for (final t in monthTxns) {
+    if (t.direction == Direction.debit) {
+      spent += t.amountPaise;
+      byCat[t.categoryId] = (byCat[t.categoryId] ?? 0) + t.amountPaise;
+    } else if (t.categoryId != 'income' && !t.note.toLowerCase().contains('top-up')) {
+      refunds += t.amountPaise;
+    }
+  }
+
+  String? topName;
+  var topPaise = 0;
+  byCat.forEach((id, v) {
+    if (v > topPaise) {
+      topPaise = v;
+      topName = ledger.categoryById(id)?.name;
+    }
+  });
+
+  final cycleStipend = effectiveStipendForCycle(ledger, cycle);
+
+  final budget = MonthBudget(
+    cycle: cycle,
+    allowancePaise: cycleStipend,
+    spentPaise: spent,
+    refundsPaise: refunds,
+  );
+
+  return MonthView(
+    budget: budget,
+    txns: monthTxns,
     topCategoryName: topName,
     topCategoryPaise: topPaise,
     cycle: cycle,

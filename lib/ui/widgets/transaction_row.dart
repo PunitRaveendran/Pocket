@@ -33,10 +33,17 @@ class TransactionRow extends StatelessWidget {
       withSign: credit,
     );
     final time = DateFormat('h:mm a').format(txn.occurredAt.toLocal());
-    final title = txn.merchant.isEmpty ? categoryName : txn.merchant;
+    final title = txn.displayTitle(categoryName);
+    final recipient = txn.displayRecipient;
+    final subtitle = (recipient != null && recipient.toLowerCase() != title.toLowerCase())
+        ? '$recipient  ·  $time'
+        : time;
+    final semanticRecipient = (recipient != null && recipient.toLowerCase() != title.toLowerCase())
+        ? ', to $recipient'
+        : '';
     return Semantics(
       button: true,
-      label: '$title, $categoryName, ${Money.spokenRupees(txn.amountPaise)}',
+      label: '$title$semanticRecipient, ${Money.spokenRupees(txn.amountPaise)}',
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
@@ -53,7 +60,7 @@ class TransactionRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(title, style: TypeScale.body(t.ink), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      Text('$categoryName  ·  $time', style: TypeScale.caption(t.inkSoft)),
+                      Text(subtitle, style: TypeScale.caption(t.inkSoft), maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),

@@ -578,6 +578,7 @@ To talk to us, drop an email to help@slice.bank.in
 
         // 1,000 emails should parse in well under 100ms (typically 5-20ms)
         expect(stopwatch.elapsedMilliseconds, lessThan(200));
+        // ignore: avoid_print
         print('⚡ Benchmark: Parsed $iterations Slice emails in ${stopwatch.elapsedMilliseconds} ms (${(stopwatch.elapsedMicroseconds / iterations).toStringAsFixed(1)} µs/email)');
       });
     });
